@@ -239,6 +239,7 @@ rogue-device detection with push notifications.
 | `NETSCANNER_PASS` | Seeds/overrides the admin password (default login is `admin`) |
 | `NETSCANNER_TRUST_LOCALHOST` | `0` (default) prompts everywhere; `1` skips auth for `127.0.0.1` |
 | `NETSCANNER_OPEN` | `1` disables auth entirely (trusted segments only) |
+| `NETSCANNER_SESSION_DAYS` | Login session lifetime in days (default `30`) |
 | `NETSCANNER_TOKEN` | Legacy static bearer token (managed tokens in the UI are preferred) |
 | `NETSCANNER_WEBHOOK` | URL to POST events to |
 | `NETSCANNER_MQTT` | MQTT broker `host` or `host:port` |
@@ -256,11 +257,13 @@ the dashboard.
 
 **Sign in:**
 
-- **Humans** — log in with the admin username/password (HTTP Basic auth). Change
-  them under **Settings → Admin login**; the new credentials are hashed (PBKDF2)
-  and persisted to `netscanner-data/auth.json`, so they survive restarts. You can
-  also seed the initial password with `NETSCANNER_PASS` (and `NETSCANNER_USER`),
-  which additionally works as a recovery/override login.
+- **Humans** — sign in on a styled **login page** (a session cookie keeps you
+  signed in; **Sign out** lives in the dashboard header). Change the
+  username/password under **Settings → Admin login**; the new credentials are
+  hashed (PBKDF2) and persisted to `netscanner-data/auth.json`, so they survive
+  restarts — and changing the password no longer signs you out. You can also seed
+  the initial password with `NETSCANNER_PASS` (and `NETSCANNER_USER`), which
+  additionally works as a recovery/override login.
 - **Agents & scripts** — create **API tokens** under **Settings → API tokens**.
   Each token is named, shows when it was created and last used, and is
   **long-lived by default** (set an expiry in days if you want one). Token values

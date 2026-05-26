@@ -1687,6 +1687,102 @@ def auth_configured():
     return not NETSCANNER_OPEN
 
 
+# ---- browser login sessions (cookie-based; in-memory) ----
+SESSIONS = {}                # token -> expiry epoch
+SESSIONS_LOCK = threading.Lock()
+try:
+    SESSION_TTL = max(1, int(os.environ.get("NETSCANNER_SESSION_DAYS", "30"))) * 86400
+except Exception:
+    SESSION_TTL = 30 * 86400
+
+
+def new_session():
+    tok = secrets.token_urlsafe(32)
+    now = time.time()
+    with SESSIONS_LOCK:
+        for k in [k for k, v in SESSIONS.items() if v < now]:
+            SESSIONS.pop(k, None)
+        SESSIONS[tok] = now + SESSION_TTL
+    return tok
+
+
+def session_valid(tok):
+    if not tok:
+        return False
+    with SESSIONS_LOCK:
+        exp = SESSIONS.get(tok)
+        if exp and exp > time.time():
+            return True
+        if exp:
+            SESSIONS.pop(tok, None)
+    return False
+
+
+def drop_session(tok):
+    with SESSIONS_LOCK:
+        SESSIONS.pop(tok, None)
+
+
+def login_page():
+    hint = ('<div class="hint">Default login is <b>admin</b> / <b>admin</b> — change it after signing in.</div>'
+            if is_default_admin() else '')
+    return ("""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NetScanner - Sign in</title>
+<style>
+:root{--bg:#0b0f17;--panel:#111726;--border:#1e2a40;--text:#e6edf3;--muted:#8aa0bd;--cyan:#49d8f2;--blue:#3b82f6;--red:#f0716b}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color:var(--text);
+  background:radial-gradient(1100px 700px at 50% -10%,#0e1a2c,var(--bg) 70%)}
+.card{width:min(380px,92vw);background:linear-gradient(180deg,var(--panel),#0c111c);
+  border:1px solid var(--border);border-radius:18px;padding:34px 30px;box-shadow:0 30px 80px rgba(0,0,0,.5)}
+.brand{display:flex;flex-direction:column;align-items:center;text-align:center;margin-bottom:22px}
+.brand h1{font-size:18px;letter-spacing:4px;margin:14px 0 2px;font-weight:700}
+.brand .tag{font-size:10.5px;letter-spacing:3px;text-transform:uppercase;color:var(--muted);font-family:ui-monospace,monospace}
+label{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin:14px 0 6px}
+input{width:100%;background:#0a0f1a;border:1px solid var(--border);color:var(--text);
+  border-radius:10px;padding:11px 13px;font-size:14px;outline:none}
+input:focus{border-color:var(--cyan);box-shadow:0 0 0 3px rgba(73,216,242,.14)}
+button{width:100%;margin-top:20px;border:none;border-radius:10px;padding:12px;font-size:14px;font-weight:700;
+  color:#04121c;background:linear-gradient(135deg,var(--cyan),var(--blue));cursor:pointer}
+button:active{transform:translateY(1px)}
+.err{margin-top:14px;min-height:18px;color:var(--red);font-size:12.5px;text-align:center}
+.hint{margin-top:18px;text-align:center;color:var(--muted);font-size:11px;font-family:ui-monospace,monospace}
+.hint b{color:var(--cyan);font-weight:600}
+</style></head><body>
+<form class="card" id="f" onsubmit="return go(event)">
+  <div class="brand">
+    <svg width="46" height="46" viewBox="0 0 40 40" fill="none">
+      <circle cx="20" cy="20" r="18" stroke="#203a5e"/><circle cx="20" cy="20" r="12" stroke="#203a5e"/>
+      <circle cx="20" cy="20" r="6" stroke="#49d8f2"/><circle cx="20" cy="20" r="3" fill="#ecb24a"/>
+      <circle cx="32" cy="20" r="1.7" fill="#49d8f2"/><circle cx="14" cy="8" r="1.7" fill="#49d8f2"/>
+      <circle cx="9" cy="27" r="1.7" fill="#3b82f6"/><circle cx="28" cy="31" r="1.7" fill="#49d8f2"/></svg>
+    <h1>NETSCANNER</h1><div class="tag">Signal Cartography</div>
+  </div>
+  <label for="u">Username</label>
+  <input id="u" name="username" autocomplete="username" autofocus required>
+  <label for="p">Password</label>
+  <input id="p" name="password" type="password" autocomplete="current-password" required>
+  <button type="submit">Sign in</button>
+  <div class="err" id="err"></div>
+  __HINT__
+</form>
+<script>
+async function go(e){
+  e.preventDefault();
+  var err=document.getElementById('err'); err.textContent='';
+  try{
+    var r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({username:document.getElementById('u').value,password:document.getElementById('p').value})});
+    if(r.ok){location.href='/';}
+    else{var d=await r.json().catch(function(){return {};}); err.textContent=d.error||'Sign in failed';}
+  }catch(_){err.textContent='Could not reach the server';}
+  return false;
+}
+</script></body></html>""").replace("__HINT__", hint)
+
+
 # --------------------------------------------------------------------------- #
 # Job manager
 # --------------------------------------------------------------------------- #
@@ -2332,6 +2428,16 @@ def openapi_spec():
                         "password": {"type": "string"}}}}}},
                 "responses": {"200": ok, "400": {"description": "password required"},
                               "403": {"description": "current password incorrect"}}}},
+            "/login": {"get": {"tags": ["system"], "summary": "Login page (HTML)",
+                "security": [], "responses": {"200": ok}}},
+            "/api/login": {"post": {"tags": ["security"], "summary": "Log in; sets a session cookie",
+                "security": [],
+                "requestBody": {"required": True, "content": {"application/json": {"schema": {
+                    "type": "object", "required": ["username", "password"], "properties": {
+                        "username": {"type": "string"}, "password": {"type": "string"}}}}}},
+                "responses": {"200": ok, "401": {"description": "invalid username or password"}}}},
+            "/api/logout": {"post": {"tags": ["security"], "summary": "Log out (clears the session)",
+                "responses": {"200": ok}}},
             "/mcp": {"post": {"tags": ["agent"],
                 "summary": "Model Context Protocol endpoint (JSON-RPC 2.0)",
                 "description": "Streamable-HTTP MCP transport. Methods: initialize, "
@@ -2497,25 +2603,50 @@ class Handler(BaseHTTPRequestHandler):
             return False
         return verify_admin(user, pw)
 
-    def _authed(self):
-        if not auth_configured():
-            return True
+    def _cookie(self, name):
+        for part in (self.headers.get("Cookie", "") or "").split(";"):
+            k, _, v = part.strip().partition("=")
+            if k == name:
+                return v
+        return ""
+
+    def _auth_method(self):
+        if NETSCANNER_OPEN:
+            return "open"
         if NETSCANNER_TRUST_LOCALHOST and self._client_is_local():
-            return True
+            return "localhost"
+        if session_valid(self._cookie("ns_session")):
+            return "session"
         tok = self._bearer()
         if tok and token_valid(tok):
-            return True
-        return self._basic_ok()
+            return "token"
+        if self._basic_ok():
+            return "basic"
+        return "none"
+
+    def _authed(self):
+        return self._auth_method() != "none"
 
     def _deny(self):
-        return self._send(401, {"error": "unauthorized"},
-                          extra={"WWW-Authenticate": 'Basic realm="NetScanner"'})
+        # Browsers navigating to a page are redirected to the styled login screen;
+        # API / fetch callers get a plain 401 (no WWW-Authenticate -> no browser popup).
+        p = urlparse(self.path).path
+        accept = self.headers.get("Accept", "")
+        if self.command == "GET" and (p in ("/", "/index.html") or "text/html" in accept):
+            return self._send(302, b"", extra={"Location": "/login"})
+        return self._send(401, {"error": "unauthorized"})
 
     def do_GET(self):
-        if not self._authed():
-            return self._deny()
         parsed = urlparse(self.path)
         path, qs = parsed.path, parse_qs(parsed.query)
+        if path == "/login":
+            return self._send(200, login_page(), "text/html; charset=utf-8")
+        if path == "/logout":
+            drop_session(self._cookie("ns_session"))
+            return self._send(302, b"", extra={"Location": "/login",
+                "Set-Cookie": "ns_session=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax"})
+        if not self._authed():
+            return self._deny()
         if path in ("/", "/index.html"):
             return self._send(200, load_ui(), "text/html; charset=utf-8")
         if path == "/openapi.json":
@@ -2529,6 +2660,7 @@ class Handler(BaseHTTPRequestHandler):
                 "platform": platform.system() + " " + platform.release(),
                 "oui": oui_status(),
                 "auth": {"enabled": auth_configured(),
+                         "method": self._auth_method(),
                          "username": load_admin().get("username"),
                          "default_creds": is_default_admin(),
                          "trust_localhost": NETSCANNER_TRUST_LOCALHOST}})
@@ -2576,6 +2708,16 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         path = urlparse(self.path).path
         data = self._body()
+        if path == "/api/login":
+            if verify_admin((data.get("username") or "").strip(), data.get("password") or ""):
+                tok = new_session()
+                return self._send(200, {"ok": True}, extra={"Set-Cookie":
+                    "ns_session=%s; Path=/; Max-Age=%d; HttpOnly; SameSite=Lax" % (tok, SESSION_TTL)})
+            return self._send(401, {"error": "invalid username or password"})
+        if path == "/api/logout":
+            drop_session(self._cookie("ns_session"))
+            return self._send(200, {"ok": True}, extra={"Set-Cookie":
+                "ns_session=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax"})
         if not self._authed():
             return self._deny()
         if path == "/mcp":

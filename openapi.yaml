@@ -375,6 +375,48 @@ paths:
           description: "password required"
         "403":
           description: "current password incorrect"
+  "/login":
+    get:
+      tags:
+      - "system"
+      summary: "Login page (HTML)"
+      security: []
+      responses:
+        "200":
+          description: "OK"
+  "/api/login":
+    post:
+      tags:
+      - "security"
+      summary: "Log in; sets a session cookie"
+      security: []
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              type: "object"
+              required:
+              - "username"
+              - "password"
+              properties:
+                username:
+                  type: "string"
+                password:
+                  type: "string"
+      responses:
+        "200":
+          description: "OK"
+        "401":
+          description: "invalid username or password"
+  "/api/logout":
+    post:
+      tags:
+      - "security"
+      summary: "Log out (clears the session)"
+      responses:
+        "200":
+          description: "OK"
   "/mcp":
     post:
       tags:

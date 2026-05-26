@@ -298,6 +298,7 @@ textarea.ceinput{min-height:58px;resize:vertical}
         <button id="v-events" class="ghost navbtn" onclick="setView('events')">Events<span class="evbadge" id="evbadge" style="display:none">0</span></button>
         <button id="v-hist" class="ghost navbtn" onclick="setView('hist')">History</button>
         <button id="v-settings" class="ghost navbtn" onclick="setView('settings')" title="Security &amp; settings">⚙ Settings</button>
+        <button id="signout" class="ghost navbtn" style="display:none" onclick="signOut()">Sign out</button>
       </div>
     </div>
     <div class="adv">
@@ -475,7 +476,8 @@ function targetError(str){
 }
 function toast(msg,kind){const t=document.createElement('div');t.className='t '+(kind||'');t.textContent=msg;
   document.getElementById('toast').appendChild(t);setTimeout(()=>t.remove(),5200);}
-async function api(path,opts){const r=await fetch(path,opts);if(!r.ok)throw new Error('HTTP '+r.status);return r.json();}
+async function api(path,opts){const r=await fetch(path,opts);if(r.status===401){location.href='/login';throw new Error('unauthorized');}if(!r.ok)throw new Error('HTTP '+r.status);return r.json();}
+function signOut(){fetch('/api/logout',{method:'POST'}).then(()=>location.href='/login').catch(()=>location.href='/login');}
 
 async function loadInfo(){
   try{const i=await api('/api/info');
@@ -485,6 +487,8 @@ async function loadInfo(){
     document.getElementById('env').innerHTML='host <b>'+esc(i.local_ip)+'</b> · gw <b>'+esc(i.gateway||'?')+'</b> · '+esc(i.platform);
     updateOui(i.oui);
     updateSecWarn(i.auth);
+    const so=document.getElementById('signout');
+    if(so)so.style.display=(i.auth&&i.auth.method==='session')?'':'none';
   }catch(e){}
 }
 function updateSecWarn(auth){
@@ -1337,7 +1341,7 @@ function changeCreds(){
   const np=document.getElementById('adm-new').value;
   if(!np){toast('Enter a new password','amber');return;}
   api('/api/credentials',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:u,current_password:cur,password:np})})
-    .then(()=>toast('Admin login updated — reload the page and sign in with the new credentials.','green'))
+    .then(()=>{toast('Admin login updated.','green');document.getElementById('adm-cur').value='';document.getElementById('adm-new').value='';loadInfo();renderSettings();})
     .catch(e=>toast((''+e.message).indexOf('403')>=0?'Current password is incorrect':'Could not update: '+e.message,'red'));
 }
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&editingIp)cancelCardEdit();});
