@@ -193,18 +193,18 @@ the same scan history your web UI produces.
 ### Remote MCP over HTTP
 
 The web server also speaks MCP at `POST /mcp` (JSON-RPC 2.0), so a remote agent
-can reach a NetScanner running on your NAS. Protect it with a bearer token:
+can reach a NetScanner running on your NAS. Authorize it with an **API token**
+(create one in the dashboard under **Events → API access**, or use the legacy
+`NETSCANNER_TOKEN` env var):
 
 ```
-NETSCANNER_TOKEN=your-secret python netscanner.py --host 0.0.0.0
-
 curl -X POST http://nas:8765/mcp \
-  -H "Authorization: Bearer your-secret" \
+  -H "Authorization: Bearer nsk_your_token" \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
 ```
 
-When `NETSCANNER_TOKEN` is unset, `/mcp` is open (fine for localhost use). A
-`?token=` query parameter is accepted as well.
+See [Security & access control](#security--access-control) for the full picture.
+A `?token=` query parameter is also accepted (avoid it where requests get logged).
 
 ### OpenAPI
 
@@ -234,12 +234,81 @@ rogue-device detection with push notifications.
 | `NETSCANNER_HOST` | Bind address (default `127.0.0.1`; Docker uses `0.0.0.0`) |
 | `NETSCANNER_PORT` | Port (default `8765`) |
 | `NETSCANNER_NO_BROWSER` | Don't auto-open a browser |
-| `NETSCANNER_DATA` | Data dir (history, names, vendor DB, baseline, events) |
-| `NETSCANNER_TOKEN` | Bearer token required on `/mcp` (unset = open) |
+| `NETSCANNER_DATA` | Data dir (history, names, vendor DB, baseline, events, tokens) |
+| `NETSCANNER_USER` | Admin username for dashboard login (default `admin`) |
+| `NETSCANNER_PASS` | Admin password — set it to require login; turns auth on |
+| `NETSCANNER_TRUST_LOCALHOST` | `1` (default) skips auth for `127.0.0.1`; set `0` behind a same-host proxy |
+| `NETSCANNER_TOKEN` | Legacy static bearer token (managed tokens in the UI are preferred) |
 | `NETSCANNER_WEBHOOK` | URL to POST events to |
 | `NETSCANNER_MQTT` | MQTT broker `host` or `host:port` |
 | `NETSCANNER_MQTT_TOPIC` | MQTT topic (default `netscanner/events`) |
 | `NETSCANNER_MQTT_USER` / `NETSCANNER_MQTT_PASS` | MQTT credentials (optional) |
+
+---
+
+## Security & access control
+
+By default NetScanner binds to `127.0.0.1` and runs open — fine for a local
+desktop. When you expose it (Docker `--host 0.0.0.0`, or a NAS), you can lock
+down the **whole** app: the dashboard, every `/api/*` endpoint, and `/mcp`.
+
+**When auth turns on.** It's enforced as soon as any of these exist: an admin
+password (`NETSCANNER_PASS`), the legacy `NETSCANNER_TOKEN`, or at least one API
+token created in the dashboard. Until then the app runs open and shows an
+"unsecured" banner.
+
+**Two ways in:**
+
+- **Humans** — set `NETSCANNER_USER` (default `admin`) and `NETSCANNER_PASS`; the
+  browser prompts for login (HTTP Basic auth).
+- **Agents & scripts** — create **API tokens** in the dashboard under
+  **Events → API access**. Each token is named, shows when it was created and
+  last used, and is **long-lived by default** (set an expiry in days if you want
+  one). Token values stay **viewable**, so you can copy a token back into an
+  agent's config later. Use them with `Authorization: Bearer <token>` on the API
+  and `/mcp`. Tokens are stored in `netscanner-data/tokens.json` (gitignored) —
+  treat that file as a secret.
+
+**Localhost trust.** By default, requests from `127.0.0.1` skip auth, so running
+locally stays frictionless while remote access still needs credentials. Set
+`NETSCANNER_TRUST_LOCALHOST=0` to require auth even locally — **you must do this
+behind a same-host reverse proxy**, otherwise the proxy's own localhost
+connection bypasses auth for everyone.
+
+### HTTPS with an nginx reverse proxy
+
+NetScanner serves plain HTTP, so passwords and tokens travel in cleartext. On a
+NAS or any untrusted segment, put it behind a reverse proxy that terminates TLS:
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name netscanner.example.lan;
+
+    ssl_certificate     /etc/nginx/certs/netscanner.crt;
+    ssl_certificate_key /etc/nginx/certs/netscanner.key;
+
+    location / {
+        proxy_pass http://127.0.0.1:8765;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        # Pass the caller's credentials (Bearer token / Basic) through:
+        proxy_set_header Authorization $http_authorization;
+    }
+}
+```
+
+**Gotcha:** nginx connects to NetScanner from `127.0.0.1`, so run NetScanner with
+`NETSCANNER_TRUST_LOCALHOST=0` — otherwise every proxied request looks local and
+skips auth. Two working patterns:
+
+1. **App-enforced auth** (keeps in-app token management): set `NETSCANNER_PASS`
+   and/or create API tokens, set `NETSCANNER_TRUST_LOCALHOST=0`, and let nginx
+   pass `Authorization` through (as above). nginx only does TLS.
+2. **Proxy-enforced auth**: let nginx do its own `auth_basic`, and leave
+   NetScanner trusting localhost. Simpler, but you lose per-token management.
+
+Either way, don't expose NetScanner directly to the internet.
 
 ---
 
@@ -280,4 +349,4 @@ No secrets are required — the workflow authenticates to GHCR with the built-in
 
 ## Privacy
 
-Your scan results are local only. `.gitignore` excludes `netscanner_data/` (IPs, MACs, hostnames, device names/notes, scan history, baseline and events) and common secret files so they're never committed.
+Your scan results are local only. `.gitignore` excludes `netscanner_data/` (IPs, MACs, hostnames, device names/notes, scan history, baseline, events and API tokens) and common secret files so they're never committed.

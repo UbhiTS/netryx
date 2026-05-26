@@ -16,7 +16,9 @@ Env: NETSCANNER_HOST, NETSCANNER_PORT, NETSCANNER_NO_BROWSER, NETSCANNER_DATA
 """
 
 import argparse
+import base64
 import csv
+import hmac
 import io
 import ipaddress
 import json
@@ -24,6 +26,7 @@ import os
 import platform
 import random
 import re
+import secrets
 import socket
 import ssl
 import struct
@@ -46,8 +49,15 @@ DATA_DIR = os.environ.get("NETSCANNER_DATA") or os.path.join(APP_DIR, "netscanne
 HISTORY_DIR = os.path.join(DATA_DIR, "history")
 DEVICES_FILE = os.path.join(DATA_DIR, "devices.json")
 SEEN_FILE = os.path.join(DATA_DIR, "seen_macs.json")
-# Optional bearer token gating the agent endpoints (/mcp). Empty = open (local use).
-NETSCANNER_TOKEN = os.environ.get("NETSCANNER_TOKEN", "").strip()
+# Access control. When any of these are set (or any API token exists), the whole
+# app (UI + /api + /mcp) requires auth, except requests from localhost when
+# NETSCANNER_TRUST_LOCALHOST is on. Humans use admin Basic auth; agents use tokens.
+NETSCANNER_TOKEN = os.environ.get("NETSCANNER_TOKEN", "").strip()          # legacy static bearer token
+NETSCANNER_USER = (os.environ.get("NETSCANNER_USER", "admin").strip() or "admin")
+NETSCANNER_PASS = os.environ.get("NETSCANNER_PASS", "")
+NETSCANNER_TRUST_LOCALHOST = os.environ.get("NETSCANNER_TRUST_LOCALHOST", "1").strip().lower() \
+    not in ("0", "false", "no", "off", "")
+TOKENS_FILE = os.path.join(DATA_DIR, "tokens.json")
 for _d in (DATA_DIR, HISTORY_DIR):
     try:
         os.makedirs(_d, exist_ok=True)
@@ -1560,6 +1570,75 @@ def mqtt_publish(topic, message, timeout=5):
 
 
 # --------------------------------------------------------------------------- #
+# API tokens + access control
+# --------------------------------------------------------------------------- #
+
+def load_tokens():
+    d = _load_json(TOKENS_FILE, {"tokens": []})
+    if "tokens" not in d:
+        d = {"tokens": []}
+    return d
+
+
+def save_tokens(d):
+    _save_json(TOKENS_FILE, d)
+    return d
+
+
+def list_tokens():
+    return load_tokens().get("tokens", [])
+
+
+def create_token(name="token", expires_days=None):
+    d = load_tokens()
+    exp = None
+    try:
+        if expires_days not in (None, "", 0, "0"):
+            exp = time.time() + float(expires_days) * 86400
+    except Exception:
+        exp = None
+    rec = {"id": secrets.token_hex(5), "name": (str(name or "token"))[:60],
+           "token": "nsk_" + secrets.token_urlsafe(32),
+           "created": time.time(), "last_used": None, "expires": exp}
+    d.setdefault("tokens", []).append(rec)
+    save_tokens(d)
+    return rec
+
+
+def delete_token(tid):
+    d = load_tokens()
+    n0 = len(d.get("tokens", []))
+    d["tokens"] = [t for t in d.get("tokens", []) if t.get("id") != tid]
+    save_tokens(d)
+    return len(d["tokens"]) != n0
+
+
+def token_valid(value):
+    if not value:
+        return False
+    if NETSCANNER_TOKEN and hmac.compare_digest(value, NETSCANNER_TOKEN):
+        return True
+    d = load_tokens()
+    now = time.time()
+    hit = None
+    for t in d.get("tokens", []):
+        if hmac.compare_digest(value, t.get("token", "")):
+            if t.get("expires") and now > t["expires"]:
+                return False
+            hit = t
+            break
+    if hit:
+        hit["last_used"] = now
+        save_tokens(d)
+        return True
+    return False
+
+
+def auth_configured():
+    return bool(NETSCANNER_PASS or NETSCANNER_TOKEN or list_tokens())
+
+
+# --------------------------------------------------------------------------- #
 # Job manager
 # --------------------------------------------------------------------------- #
 
@@ -2112,9 +2191,12 @@ def openapi_spec():
         "components": {
             "securitySchemes": {
                 "bearerAuth": {"type": "http", "scheme": "bearer",
-                               "description": "Set NETSCANNER_TOKEN to require this on /mcp."}
+                               "description": "An API token: Authorization: Bearer nsk_... (manage tokens in the dashboard)."},
+                "basicAuth": {"type": "http", "scheme": "basic",
+                              "description": "Admin username/password (NETSCANNER_USER / NETSCANNER_PASS)."}
             }
         },
+        "security": [{"bearerAuth": []}, {"basicAuth": []}],
         "paths": {
             "/api/info": {"get": {"tags": ["system"], "summary": "Host & network context",
                 "description": "Local IP, gateway, suggested subnet, platform, CPU count and OUI DB status.",
@@ -2181,6 +2263,17 @@ def openapi_spec():
                 "parameters": [{"name": "limit", "in": "query", "required": False,
                                 "schema": {"type": "integer", "default": 100}}],
                 "responses": {"200": ok}}},
+            "/api/tokens": {
+                "get": {"tags": ["security"], "summary": "List API tokens (values are viewable)",
+                        "responses": {"200": ok}},
+                "post": {"tags": ["security"], "summary": "Create or delete an API token",
+                    "requestBody": {"required": True, "content": {"application/json": {"schema": {
+                        "type": "object", "properties": {
+                            "action": {"type": "string", "enum": ["create", "delete"]},
+                            "name": {"type": "string"},
+                            "expires_days": {"type": "integer", "description": "Omit for a long-lived token"},
+                            "id": {"type": "string"}}}}}},
+                    "responses": {"200": ok, "400": {"description": "unknown action"}}}},
             "/mcp": {"post": {"tags": ["agent"],
                 "summary": "Model Context Protocol endpoint (JSON-RPC 2.0)",
                 "description": "Streamable-HTTP MCP transport. Methods: initialize, "
@@ -2326,16 +2419,45 @@ class Handler(BaseHTTPRequestHandler):
         except Exception:
             return {}
 
-    def _token_ok(self):
-        """True if no token is configured, or the request presents the right one."""
-        if not NETSCANNER_TOKEN:
-            return True
+    def _client_is_local(self):
+        ip = self.client_address[0] if self.client_address else ""
+        return ip in ("127.0.0.1", "::1", "::ffff:127.0.0.1")
+
+    def _bearer(self):
         hdr = self.headers.get("Authorization", "")
         if hdr.startswith("Bearer "):
-            return hdr[7:].strip() == NETSCANNER_TOKEN
-        return (parse_qs(urlparse(self.path).query).get("token") or [""])[0] == NETSCANNER_TOKEN
+            return hdr[7:].strip()
+        return (parse_qs(urlparse(self.path).query).get("token") or [""])[0]
+
+    def _basic_ok(self):
+        if not NETSCANNER_PASS:
+            return False
+        hdr = self.headers.get("Authorization", "")
+        if not hdr.startswith("Basic "):
+            return False
+        try:
+            user, _, pw = base64.b64decode(hdr[6:].strip()).decode("utf-8", "replace").partition(":")
+        except Exception:
+            return False
+        return hmac.compare_digest(user, NETSCANNER_USER) and hmac.compare_digest(pw, NETSCANNER_PASS)
+
+    def _authed(self):
+        if not auth_configured():
+            return True
+        if NETSCANNER_TRUST_LOCALHOST and self._client_is_local():
+            return True
+        tok = self._bearer()
+        if tok and token_valid(tok):
+            return True
+        return self._basic_ok()
+
+    def _deny(self):
+        return self._send(401, {"error": "unauthorized"},
+                          extra={"WWW-Authenticate": 'Basic realm="NetScanner"'})
 
     def do_GET(self):
+        if not self._authed():
+            return self._deny()
         parsed = urlparse(self.path)
         path, qs = parsed.path, parse_qs(parsed.query)
         if path in ("/", "/index.html"):
@@ -2349,7 +2471,9 @@ class Handler(BaseHTTPRequestHandler):
                 "subnet": default_subnet(), "local_ip": get_primary_ip(),
                 "gateway": default_gateway(), "cpu": os.cpu_count(),
                 "platform": platform.system() + " " + platform.release(),
-                "oui": oui_status()})
+                "oui": oui_status(),
+                "auth": {"enabled": auth_configured(), "admin": bool(NETSCANNER_PASS),
+                         "trust_localhost": NETSCANNER_TRUST_LOCALHOST}})
         if path == "/api/oui":
             return self._send(200, oui_status())
         if path == "/api/job":
@@ -2385,15 +2509,18 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 limit = 100
             return self._send(200, {"events": list_events(limit)})
+        if path == "/api/tokens":
+            return self._send(200, {"tokens": list_tokens(),
+                                    "trust_localhost": NETSCANNER_TRUST_LOCALHOST,
+                                    "admin": bool(NETSCANNER_PASS)})
         return self._send(404, {"error": "not found"})
 
     def do_POST(self):
         path = urlparse(self.path).path
         data = self._body()
+        if not self._authed():
+            return self._deny()
         if path == "/mcp":
-            if not self._token_ok():
-                return self._send(401, {"error": "unauthorized"},
-                                  extra={"WWW-Authenticate": "Bearer"})
             try:
                 import netscanner_mcp as mcpmod
             except Exception as e:
@@ -2466,6 +2593,14 @@ class Handler(BaseHTTPRequestHandler):
                 b = approve_devices(data.get("keys") or [], devs)
                 return self._send(200, {"ok": True, "action": "approve",
                                         "size": len(b.get("devices", {}))})
+            return self._send(400, {"error": "unknown action"})
+        if path == "/api/tokens":
+            action = (data.get("action") or "create").strip().lower()
+            if action == "create":
+                return self._send(200, {"ok": True,
+                                        "token": create_token(data.get("name"), data.get("expires_days"))})
+            if action == "delete":
+                return self._send(200, {"ok": delete_token((data.get("id") or "").strip())})
             return self._send(400, {"error": "unknown action"})
         return self._send(404, {"error": "not found"})
 

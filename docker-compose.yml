@@ -20,8 +20,12 @@ services:
       - NETSCANNER_HOST=0.0.0.0
       - NETSCANNER_PORT=8765    # change if 8765 is taken on the NAS
       - NETSCANNER_NO_BROWSER=1
-      # --- Optional: AI-agent endpoint + proactive alerts ---
-      # - NETSCANNER_TOKEN=change-me              # require a bearer token on POST /mcp
+      # --- Optional: lock down access (dashboard + API + MCP) ---
+      # - NETSCANNER_USER=admin                   # dashboard login user (default admin)
+      # - NETSCANNER_PASS=change-me               # set a password to REQUIRE login (turns auth on)
+      # - NETSCANNER_TRUST_LOCALHOST=1            # 1=skip auth for 127.0.0.1; set 0 behind a same-host reverse proxy
+      # - NETSCANNER_TOKEN=change-me              # legacy static bearer token (or create tokens in the UI)
+      # --- Optional: proactive alerts ---
       # - NETSCANNER_WEBHOOK=https://hooks.example.com/netscanner
       # - NETSCANNER_MQTT=192.168.1.10:1883       # broker host or host:port
       # - NETSCANNER_MQTT_TOPIC=netscanner/events

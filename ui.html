@@ -224,6 +224,22 @@ textarea.ceinput{min-height:58px;resize:vertical}
 .evfeed .kind{font-family:var(--mono);font-size:10.5px;padding:2px 9px;border-radius:20px;border:1px solid var(--border)}
 .evfeed .kind.rogue_device{background:rgba(240,113,107,.16);color:#ff9a93;border-color:rgba(240,113,107,.5)}
 .evfeed .kind.new_open_port{background:rgba(236,178,74,.16);color:#f0c674;border-color:rgba(236,178,74,.45)}
+.secwarn{margin:0 0 14px;padding:11px 15px;border:1px solid rgba(236,178,74,.5);border-radius:11px;
+  background:rgba(236,178,74,.1);color:#f0c674;font-size:12.5px;display:flex;align-items:flex-start;gap:10px;line-height:1.5}
+.secwarn b{color:#ffd98a}
+.tokrow{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:start;padding:11px 0;border-bottom:1px solid var(--line)}
+.tokrow:last-of-type{border-bottom:none}
+.tokmeta{min-width:0}
+.tokmeta .nm{font-weight:600;font-size:13.5px}
+.tokmeta .mm{color:var(--muted);font-size:11px;font-family:var(--mono);margin-top:2px}
+.tokval{display:flex;gap:7px;align-items:center;margin-top:7px}
+.tokval input{flex:1;min-width:0;background:var(--bg2);border:1px solid var(--border);color:#cfe0f5;
+  border-radius:7px;padding:6px 9px;font-family:var(--mono);font-size:11.5px}
+.tokform{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:14px}
+.tokform input[type=text]{background:var(--bg2);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 10px;font-size:13px}
+.tokform input.days{width:150px}
+.snip{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:10px 12px;
+  font-family:var(--mono);font-size:11.5px;color:#bcd0ee;white-space:pre-wrap;word-break:break-all;margin-top:6px}
 </style>
 </head>
 <body>
@@ -252,6 +268,7 @@ textarea.ceinput{min-height:58px;resize:vertical}
 </header>
 
 <main>
+  <div class="secwarn" id="secwarn" style="display:none"></div>
   <div class="panel">
     <div class="controls">
       <div class="grp">
@@ -392,6 +409,7 @@ let editingIp=null;                // device whose card is in inline-edit mode
 let scanning=false;
 let etaKey='', etaSamples=[];
 let baseline=null, ROGUE=new Set(), DRIFT=new Map();
+let appInfo=null;
 
 const TYPE_META={
   "Router / Gateway":{c:"#ecb24a"},"Network device":{c:"#ecb24a"},
@@ -457,11 +475,20 @@ async function api(path,opts){const r=await fetch(path,opts);if(!r.ok)throw new 
 
 async function loadInfo(){
   try{const i=await api('/api/info');
+    appInfo=i;
     let _last=null; try{_last=localStorage.getItem('ns_lastrange');}catch(_){}
     document.getElementById('subnet').value=_last||i.subnet||'';
     document.getElementById('env').innerHTML='host <b>'+esc(i.local_ip)+'</b> · gw <b>'+esc(i.gateway||'?')+'</b> · '+esc(i.platform);
     updateOui(i.oui);
+    updateSecWarn(i.auth);
   }catch(e){}
+}
+function updateSecWarn(auth){
+  const el=document.getElementById('secwarn'); if(!el)return;
+  if(auth&&!auth.enabled){
+    el.style.display='flex';
+    el.innerHTML='<span>⚠</span><span><b>Unsecured.</b> The API and MCP endpoint are open to anyone who can reach this server. Set an admin password (<span class="mono">NETSCANNER_PASS</span>), or create an API token in <a href="#" onclick="setView(\'events\');return false" style="color:#ffd98a">Events → API access</a>, to lock it down.</span>';
+  }else{el.style.display='none';}
 }
 function updateOui(o){
   if(!o)return;
@@ -532,6 +559,31 @@ function relTime(ts){
   const m=Math.floor(s/60); if(m<60)return m+' min ago';
   const h=Math.floor(m/60); if(h<24)return h+'h ago';
   return Math.floor(h/24)+'d ago';
+}
+function expLabel(ts){
+  if(!ts)return 'never expires';
+  const d=Math.round((ts-Date.now()/1000)/86400);
+  return d<=0?'expired':('expires in '+d+'d');
+}
+async function createTokenUI(){
+  const nm=document.getElementById('tok-name'), dys=document.getElementById('tok-days');
+  const name=(nm&&nm.value.trim())||'token';
+  const days=(dys&&dys.value.trim())?Number(dys.value.trim()):null;
+  try{
+    await api('/api/tokens',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'create',name:name,expires_days:days})});
+    toast('API token created','green'); renderEvents();
+  }catch(e){toast('Could not create token: '+e.message,'red');}
+}
+async function deleteTokenUI(id){
+  try{
+    await api('/api/tokens',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'delete',id:id})});
+    toast('Token deleted','amber'); renderEvents();
+  }catch(e){toast('Could not delete token: '+e.message,'red');}
+}
+function copyText(txt){
+  if(navigator.clipboard&&navigator.clipboard.writeText){
+    navigator.clipboard.writeText(txt).then(()=>toast('Copied to clipboard','green')).catch(()=>toast('Copy failed — select it manually','amber'));
+  }else{toast('Copy not available — select the value manually','amber');}
 }
 
 async function startScan(){
@@ -1181,8 +1233,11 @@ async function renderEvents(){
   const body=document.getElementById('events-body');
   body.innerHTML='<p class="hint">Loading…</p>';
   await loadBaseline(false);
+  try{appInfo=await api('/api/info');updateSecWarn(appInfo.auth);}catch(_){}
   let evs=[];
   try{const r=await api('/api/events?limit=200');evs=r.events||[];}catch(_){}
+  let toks=[], authInfo=(appInfo&&appInfo.auth)||{};
+  try{const tr=await api('/api/tokens');toks=tr.tokens||[];}catch(_){}
   const b=baseline||{}, has=!!b.size;
   const rogues=ROGUE.size, dp=driftPortCount();
   const tiers={critical:0,high:0,medium:0,low:0,none:0};
@@ -1215,6 +1270,26 @@ async function renderEvents(){
     '<div class="x"><b class="tier-medium">'+tiers.medium+'</b><span>Medium</span></div>'+
     '<div class="x"><b class="tier-low">'+tiers.low+'</b><span>Low</span></div>'+
     '<div class="x"><b class="tier-none">'+tiers.none+'</b><span>None</span></div></div></div>';
+  // API access & tokens
+  let trows='';
+  if(toks.length){
+    trows=toks.map(t=>'<div class="tokrow"><div class="tokmeta"><div class="nm">'+esc(t.name||'token')+'</div>'+
+      '<div class="mm">created '+relTime(t.created)+' · '+(t.last_used?('used '+relTime(t.last_used)):'never used')+' · '+expLabel(t.expires)+'</div>'+
+      '<div class="tokval"><input type="text" readonly value="'+esc(t.token)+'" onclick="this.select()"><button class="sm ghost" onclick="copyText(\''+esc(t.token)+'\')">Copy</button></div></div>'+
+      '<div><button class="sm ghost" onclick="deleteTokenUI(\''+esc(t.id)+'\')">Delete</button></div></div>').join('');
+  }else{trows='<p class="hint">No API tokens yet. Create one below for your agents or scripts.</p>';}
+  const mcpUrl=(location.origin||'')+'/mcp';
+  let statusline = authInfo.enabled
+    ? 'Access control is <b style="color:var(--green)">on</b>.'
+    : 'Access control is <b style="color:#f0c674">off</b> — set NETSCANNER_PASS for dashboard login, or just create a token below for agents.';
+  statusline+=' Admin login: '+(authInfo.admin?'enabled':'not set')+' · localhost trusted: '+(authInfo.trust_localhost?'yes':'no')+'.';
+  html+='<div class="seccard"><h3>API access &amp; tokens</h3>'+
+    '<div class="sub">'+statusline+' Tokens authorize agents and scripts with <span class="mono">Authorization: Bearer &lt;token&gt;</span> on the API and the MCP endpoint, and stay valid until you delete them (unless you set an expiry).</div>'+
+    trows+
+    '<div class="tokform"><input type="text" id="tok-name" placeholder="Token name (e.g. claude-agent)"><input type="text" class="days" id="tok-days" placeholder="expiry days (blank = never)"><button class="sm primary" onclick="createTokenUI()">Create token</button></div>'+
+    '<div class="sub" style="margin:14px 0 4px">Use it from an agent or curl:</div>'+
+    '<div class="snip">curl -H "Authorization: Bearer &lt;token&gt;" '+esc(mcpUrl)+' \\\n  -d \'{"jsonrpc":"2.0","id":1,"method":"tools/list"}\'</div>'+
+    '</div>';
   let feed='';
   if(evs.length){
     feed=evs.map(e=>{

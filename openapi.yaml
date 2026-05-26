@@ -24,7 +24,14 @@ components:
     bearerAuth:
       type: "http"
       scheme: "bearer"
-      description: "Set NETSCANNER_TOKEN to require this on /mcp."
+      description: "An API token: Authorization: Bearer nsk_... (manage tokens in the dashboard)."
+    basicAuth:
+      type: "http"
+      scheme: "basic"
+      description: "Admin username/password (NETSCANNER_USER / NETSCANNER_PASS)."
+security:
+- bearerAuth: []
+- basicAuth: []
 paths:
   "/api/info":
     get:
@@ -304,6 +311,42 @@ paths:
       responses:
         "200":
           description: "OK"
+  "/api/tokens":
+    get:
+      tags:
+      - "security"
+      summary: "List API tokens (values are viewable)"
+      responses:
+        "200":
+          description: "OK"
+    post:
+      tags:
+      - "security"
+      summary: "Create or delete an API token"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              type: "object"
+              properties:
+                action:
+                  type: "string"
+                  enum:
+                  - "create"
+                  - "delete"
+                name:
+                  type: "string"
+                expires_days:
+                  type: "integer"
+                  description: "Omit for a long-lived token"
+                id:
+                  type: "string"
+      responses:
+        "200":
+          description: "OK"
+        "400":
+          description: "unknown action"
   "/mcp":
     post:
       tags:

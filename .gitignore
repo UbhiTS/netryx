@@ -16,6 +16,7 @@ presence.json
 baseline.json
 events.json
 alerts_seen.json
+tokens.json
 # Downloaded IEEE vendor database (large, regenerated on demand)
 oui.txt
 oui.csv
