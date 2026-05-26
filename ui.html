@@ -355,6 +355,7 @@ let view='table', lastKey='', searchT=null;
 let sortCol='ip', sortDir=1;       // 1 = ascending, -1 = descending
 let editingIp=null;                // device whose card is in inline-edit mode
 let scanning=false;
+let etaKey='', etaSamples=[];
 
 const TYPE_META={
   "Router / Gateway":{c:"#ecb24a"},"Network device":{c:"#ecb24a"},
@@ -468,6 +469,28 @@ async function stopScan(){
     toast('Stopping scan — finishing in-flight probes…','amber');
   }catch(e){toast('Could not stop: '+e.message,'red');}
 }
+function fmtEta(ms){
+  if(!isFinite(ms)||ms<0)return '';
+  const s=Math.round(ms/1000);
+  if(s<60)return '~'+s+'s left';
+  const m=Math.round(s/60);
+  if(m<60)return '~'+m+'m left';
+  const h=Math.floor(m/60), mm=m%60;
+  return '~'+h+'h '+(mm<10?'0':'')+mm+'m left';
+}
+function etaText(job){
+  if(!job||job.status!=='running'||!job.total||job.total<=0){etaSamples=[];return '';}
+  const key=job.phase+':'+job.total, now=Date.now();
+  if(key!==etaKey){etaKey=key;etaSamples=[];}
+  etaSamples.push([now,job.done]);
+  while(etaSamples.length>2 && now-etaSamples[0][0]>15000) etaSamples.shift();
+  if(etaSamples.length<2)return 'estimating…';
+  const a=etaSamples[0], b=etaSamples[etaSamples.length-1];
+  const dd=b[1]-a[1], dt=b[0]-a[0], rem=job.total-job.done;
+  if(rem<=0)return '';
+  if(dd<=0||dt<=0)return 'estimating…';
+  return fmtEta(rem/(dd/dt));
+}
 async function poll(){
   if(!currentJob)return;
   try{
@@ -475,7 +498,8 @@ async function poll(){
     const pct=job.total?Math.round(job.done/job.total*100):(job.status==='running'?6:100);
     document.getElementById('progbar').style.width=pct+'%';
     document.getElementById('phase').textContent=job.phase+(job.note?' — '+job.note:'');
-    document.getElementById('progtxt').textContent=job.total?(job.done+' / '+job.total):'';
+    var _eta=etaText(job);
+    document.getElementById('progtxt').textContent=job.total?(job.done+' / '+job.total+(_eta?' · '+_eta:'')):'';
     const _tg=document.getElementById('targets');
     if(_tg){_tg.innerHTML=(job.targets&&job.targets.length>1)?job.targets.map(t=>'<span class="tg">'+esc(t.cidr)+' <b>'+(t.found||0)+'</b>/'+t.total+'</span>').join(''):'';}
     if(job.devices&&job.devices.length){devices=job.devices;renderIfChanged();}
@@ -924,7 +948,8 @@ async function scanHostPorts(ip){
       document.getElementById('phase').textContent=job.phase;document.getElementById('spin').classList.add('on');
       const pct=job.total?Math.round(job.done/job.total*100):0;
       document.getElementById('progbar').style.width=pct+'%';
-      document.getElementById('progtxt').textContent=job.total?(job.done+' / '+job.total):'';
+      var _eta2=etaText(job);
+      document.getElementById('progtxt').textContent=job.total?(job.done+' / '+job.total+(_eta2?' · '+_eta2:'')):'';
       if(job.status==='running'){setTimeout(wait,500);}
       else{document.getElementById('spin').classList.remove('on');
         const d=devices.find(x=>x.ip===ip);
