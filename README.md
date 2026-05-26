@@ -67,8 +67,14 @@ Then open **`http://<your-NAS-IP>:8765`** from any browser on your network.
 
 **Host networking is required.** A bridged container sits on its own virtual
 network and cannot see your real LAN — no device discovery, no ARP, no mDNS/SNMP.
-The provided `docker-compose.yml` already sets `network_mode: host` and adds the
-`NET_RAW`/`NET_ADMIN` capabilities needed for ICMP ping.
+The provided `docker-compose.yml` sets `network_mode: host` and adds the `NET_RAW`
+capability so ICMP ping works.
+
+**You do not need `--privileged`.** NetScanner only uses ordinary sockets and the
+`ping` command — it never reconfigures the network or sends raw packets. `NET_RAW`
+is the only capability it benefits from (for ICMP), and even that is optional:
+without it, discovery still works via TCP connect probing — you just lose ICMP
+ping and the TTL-based OS guess. (`NET_ADMIN` is not needed.)
 
 - On **Synology** (Container Manager) or **QNAP** (Container Station), import this
   project and make sure the container uses **host** network mode. If your NAS UI
@@ -83,7 +89,7 @@ Plain `docker` equivalent:
 ```
 docker build -t netscanner .
 docker run -d --name netscanner --network host \
-  --cap-add NET_RAW --cap-add NET_ADMIN \
+  --cap-add NET_RAW \
   -e NETSCANNER_PORT=8765 -v "$PWD/netscanner-data:/data" \
   --restart unless-stopped netscanner
 ```

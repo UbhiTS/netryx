@@ -14,8 +14,8 @@ services:
     container_name: netscanner
     network_mode: host          # REQUIRED — see your real LAN. Do not change to bridge.
     cap_add:
-      - NET_RAW                 # ICMP ping
-      - NET_ADMIN
+      - NET_RAW                 # ICMP ping only; not required (TCP discovery works without it).
+                                # No privileged mode needed.
     environment:
       - NETSCANNER_HOST=0.0.0.0
       - NETSCANNER_PORT=8765    # change if 8765 is taken on the NAS
