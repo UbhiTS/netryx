@@ -10,9 +10,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY netscanner.py ui.html /app/
+# netscanner_mcp.py is required for the /mcp endpoint; openapi.yaml is optional
+# (the spec is also generated dynamically) but handy to ship.
+COPY netscanner.py netscanner_mcp.py ui.html openapi.yaml /app/
 
-# Scan history, device names/notes and the downloaded IEEE vendor DB persist here.
+# Scan history, device names/notes, vendor DB, baseline and events persist here.
 ENV NETSCANNER_DATA=/data \
     NETSCANNER_HOST=0.0.0.0 \
     NETSCANNER_PORT=8765 \

@@ -20,6 +20,13 @@ services:
       - NETSCANNER_HOST=0.0.0.0
       - NETSCANNER_PORT=8765    # change if 8765 is taken on the NAS
       - NETSCANNER_NO_BROWSER=1
+      # --- Optional: AI-agent endpoint + proactive alerts ---
+      # - NETSCANNER_TOKEN=change-me              # require a bearer token on POST /mcp
+      # - NETSCANNER_WEBHOOK=https://hooks.example.com/netscanner
+      # - NETSCANNER_MQTT=192.168.1.10:1883       # broker host or host:port
+      # - NETSCANNER_MQTT_TOPIC=netscanner/events
+      # - NETSCANNER_MQTT_USER=user
+      # - NETSCANNER_MQTT_PASS=pass
     volumes:
-      - ./netscanner-data:/data # history, device names/notes, downloaded vendor DB
+      - ./netscanner-data:/data # history, names/notes, vendor DB, baseline, events
     restart: unless-stopped

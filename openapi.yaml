@@ -1,0 +1,356 @@
+openapi: "3.0.3"
+info:
+  title: "NetScanner API"
+  version: "1.0.0"
+  description: "Local network scanner & discovery engine. Discovers devices, ports and services, assesses exposure, tracks a known-good baseline, and exposes an MCP endpoint for AI agents. All data stays on the host."
+  license:
+    name: "MIT"
+servers:
+- url: "/"
+  description: "This NetScanner instance"
+tags:
+- name: "discovery"
+  description: "Scan the network and inspect results"
+- name: "devices"
+  description: "Per-device actions"
+- name: "security"
+  description: "Baseline & proactive events"
+- name: "system"
+  description: "Host info, vendor DB, export"
+- name: "agent"
+  description: "Model Context Protocol endpoint"
+components:
+  securitySchemes:
+    bearerAuth:
+      type: "http"
+      scheme: "bearer"
+      description: "Set NETSCANNER_TOKEN to require this on /mcp."
+paths:
+  "/api/info":
+    get:
+      tags:
+      - "system"
+      summary: "Host & network context"
+      description: "Local IP, gateway, suggested subnet, platform, CPU count and OUI DB status."
+      responses:
+        "200":
+          description: "OK"
+  "/api/oui":
+    get:
+      tags:
+      - "system"
+      summary: "OUI vendor database status"
+      responses:
+        "200":
+          description: "OK"
+  "/api/oui/download":
+    post:
+      tags:
+      - "system"
+      summary: "Download the full IEEE OUI database (background job)"
+      responses:
+        "200":
+          description: "Job accepted"
+          content:
+            "application/json":
+              schema:
+                type: "object"
+                properties:
+                  job_id:
+                    type: "string"
+  "/api/scan":
+    post:
+      tags:
+      - "discovery"
+      summary: "Start a discovery scan"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              type: "object"
+              required:
+              - "subnet"
+              properties:
+                subnet:
+                  type: "string"
+                  description: "CIDR/IP/range list, e.g. '192.168.1.0/24, 10.0.0.5'"
+                scan_ports:
+                  type: "boolean"
+                port_profile:
+                  type: "string"
+                  enum:
+                  - "quick"
+                  - "extended"
+                  - "full"
+                use_mdns:
+                  type: "boolean"
+                use_snmp:
+                  type: "boolean"
+                workers:
+                  type: "string"
+                  description: "number or 'auto'"
+      responses:
+        "200":
+          description: "Job accepted"
+          content:
+            "application/json":
+              schema:
+                type: "object"
+                properties:
+                  job_id:
+                    type: "string"
+        "400":
+          description: "subnet required"
+  "/api/job":
+    get:
+      tags:
+      - "discovery"
+      summary: "Poll a running/finished job"
+      parameters:
+      - name: "id"
+        in: "query"
+        required: true
+        schema:
+          type: "string"
+      responses:
+        "200":
+          description: "OK"
+        "404":
+          description: "no such job"
+  "/api/job/stop":
+    post:
+      tags:
+      - "discovery"
+      summary: "Cancel a running job"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              type: "object"
+              required:
+              - "id"
+              properties:
+                id:
+                  type: "string"
+      responses:
+        "200":
+          description: "OK"
+        "404":
+          description: "no such job"
+  "/api/portscan":
+    post:
+      tags:
+      - "discovery"
+      summary: "Scan ports on one host"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              type: "object"
+              required:
+              - "ip"
+              properties:
+                ip:
+                  type: "string"
+                profile:
+                  type: "string"
+                  enum:
+                  - "quick"
+                  - "extended"
+                  - "full"
+                workers:
+                  type: "string"
+      responses:
+        "200":
+          description: "Job accepted"
+          content:
+            "application/json":
+              schema:
+                type: "object"
+                properties:
+                  job_id:
+                    type: "string"
+        "400":
+          description: "ip required"
+  "/api/history":
+    get:
+      tags:
+      - "discovery"
+      summary: "List scan snapshots, or fetch one"
+      parameters:
+      - name: "file"
+        in: "query"
+        required: false
+        schema:
+          type: "string"
+        description: "e.g. scan_1700000000.json; omit to list all"
+      responses:
+        "200":
+          description: "OK"
+        "404":
+          description: "not found"
+  "/api/export":
+    get:
+      tags:
+      - "system"
+      summary: "Export the latest results"
+      parameters:
+      - name: "format"
+        in: "query"
+        required: false
+        schema:
+          type: "string"
+          enum:
+          - "json"
+          - "csv"
+      responses:
+        "200":
+          description: "File download (JSON or CSV)"
+  "/api/wol":
+    post:
+      tags:
+      - "devices"
+      summary: "Wake-on-LAN a MAC address"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              type: "object"
+              required:
+              - "mac"
+              properties:
+                mac:
+                  type: "string"
+      responses:
+        "200":
+          description: "OK"
+        "400":
+          description: "bad mac"
+  "/api/device":
+    post:
+      tags:
+      - "devices"
+      summary: "Set a device name/notes (by MAC)"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              type: "object"
+              required:
+              - "mac"
+              properties:
+                mac:
+                  type: "string"
+                name:
+                  type: "string"
+                notes:
+                  type: "string"
+      responses:
+        "200":
+          description: "OK"
+        "400":
+          description: "mac required"
+  "/api/baseline":
+    get:
+      tags:
+      - "security"
+      summary: "Get the known-good baseline + live diff"
+      responses:
+        "200":
+          description: "OK"
+    post:
+      tags:
+      - "security"
+      summary: "Manage the baseline"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              type: "object"
+              properties:
+                action:
+                  type: "string"
+                  enum:
+                  - "set"
+                  - "approve"
+                  - "clear"
+                keys:
+                  type: "array"
+                  items:
+                    type: "string"
+      responses:
+        "200":
+          description: "OK"
+        "400":
+          description: "unknown action"
+  "/api/events":
+    get:
+      tags:
+      - "security"
+      summary: "Recent proactive events"
+      parameters:
+      - name: "limit"
+        in: "query"
+        required: false
+        schema:
+          type: "integer"
+          default: 100
+      responses:
+        "200":
+          description: "OK"
+  "/mcp":
+    post:
+      tags:
+      - "agent"
+      summary: "Model Context Protocol endpoint (JSON-RPC 2.0)"
+      description: "Streamable-HTTP MCP transport. Methods: initialize, tools/list, tools/call, ping. Gated by NETSCANNER_TOKEN when set."
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              type: "object"
+              properties:
+                jsonrpc:
+                  type: "string"
+                  enum:
+                  - "2.0"
+                id:
+                  type:
+                  - "integer"
+                  - "string"
+                method:
+                  type: "string"
+                params:
+                  type: "object"
+      responses:
+        "200":
+          description: "JSON-RPC response"
+        "202":
+          description: "Accepted (notification, no body)"
+        "401":
+          description: "Unauthorized"
+  "/openapi.json":
+    get:
+      tags:
+      - "system"
+      summary: "This spec as JSON"
+      responses:
+        "200":
+          description: "OK"
+  "/openapi.yaml":
+    get:
+      tags:
+      - "system"
+      summary: "This spec as YAML"
+      responses:
+        "200":
+          description: "OK"

@@ -13,6 +13,9 @@ scan_*.json
 devices.json
 seen_macs.json
 presence.json
+baseline.json
+events.json
+alerts_seen.json
 # Downloaded IEEE vendor database (large, regenerated on demand)
 oui.txt
 oui.csv

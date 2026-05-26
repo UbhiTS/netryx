@@ -46,6 +46,8 @@ DATA_DIR = os.environ.get("NETSCANNER_DATA") or os.path.join(APP_DIR, "netscanne
 HISTORY_DIR = os.path.join(DATA_DIR, "history")
 DEVICES_FILE = os.path.join(DATA_DIR, "devices.json")
 SEEN_FILE = os.path.join(DATA_DIR, "seen_macs.json")
+# Optional bearer token gating the agent endpoints (/mcp). Empty = open (local use).
+NETSCANNER_TOKEN = os.environ.get("NETSCANNER_TOKEN", "").strip()
 for _d in (DATA_DIR, HISTORY_DIR):
     try:
         os.makedirs(_d, exist_ok=True)
@@ -78,6 +80,86 @@ WEB_PORTS_HTTP = {80, 591, 2082, 3000, 5000, 5001, 7000, 7070, 8000, 8008, 8080,
                   8081, 8086, 8088, 8123, 8888, 9000, 9090, 5601, 10000, 32400}
 WEB_PORTS_HTTPS = {443, 2083, 8443, 6443}
 PORT_PROFILES = ("quick", "extended", "full")
+
+# --------------------------------------------------------------------------- #
+# Exposure / risk model
+#
+# A lightweight, opinionated heuristic: open ports that are commonly abused or
+# that expose a management/data plane raise a device's exposure score. This is
+# a *pure* function of already-collected scan data (no extra network I/O), so
+# it's safe to attach to every device and to call from the CLI / MCP layers.
+# --------------------------------------------------------------------------- #
+
+RISK_TIERS = {"low": 1, "medium": 2, "high": 3, "critical": 4}
+_TIER_NAME = {0: "none", 1: "low", 2: "medium", 3: "high", 4: "critical"}
+
+# port -> (service label, tier, why)
+RISKY_PORTS = {
+    23:    ("Telnet", "critical", "unencrypted remote login"),
+    2323:  ("Telnet-alt", "critical", "unencrypted remote login"),
+    6379:  ("Redis", "critical", "frequently unauthenticated - remote code execution risk"),
+    27017: ("MongoDB", "critical", "frequently unauthenticated database"),
+    2375:  ("Docker", "critical", "unauthenticated Docker API exposes full host control"),
+    11211: ("Memcached", "critical", "unauthenticated; DDoS amplification vector"),
+    21:    ("FTP", "high", "often plaintext credentials"),
+    69:    ("TFTP", "high", "unauthenticated file transfer"),
+    512:   ("rexec", "high", "legacy remote execution"),
+    513:   ("rlogin", "high", "legacy remote login"),
+    445:   ("SMB", "high", "file sharing - common worm/ransomware vector"),
+    139:   ("NetBIOS-SSN", "high", "legacy SMB session service"),
+    3389:  ("RDP", "high", "remote desktop - common ransomware entry point"),
+    5900:  ("VNC", "high", "remote desktop, often weakly authenticated"),
+    5555:  ("ADB", "high", "Android Debug Bridge grants full device control"),
+    1433:  ("MSSQL", "high", "database directly exposed"),
+    3306:  ("MySQL", "high", "database directly exposed"),
+    5432:  ("PostgreSQL", "high", "database directly exposed"),
+    9200:  ("Elasticsearch", "high", "often unauthenticated; data disclosure"),
+    9300:  ("Elasticsearch", "high", "cluster transport exposed"),
+    1521:  ("Oracle", "high", "database directly exposed"),
+    5984:  ("CouchDB", "high", "often unauthenticated database"),
+    135:   ("MSRPC", "medium", "Windows RPC endpoint mapper"),
+    137:   ("NetBIOS", "medium", "legacy name service"),
+    161:   ("SNMP", "medium", "management plane; default community strings are common"),
+    111:   ("RPC", "medium", "portmapper - service/info disclosure"),
+    1900:  ("UPnP/SSDP", "medium", "UPnP exposed - history of CVEs"),
+    514:   ("Syslog/rsh", "medium", "legacy remote shell / log service"),
+    2049:  ("NFS", "medium", "network file system exposed"),
+    873:   ("rsync", "medium", "file sync service exposed"),
+    8086:  ("InfluxDB", "medium", "time-series database exposed"),
+    10000: ("Webmin", "medium", "server admin panel"),
+    5601:  ("Kibana", "medium", "analytics dashboard exposed"),
+}
+
+
+def risk_of(d):
+    """Heuristic exposure assessment for a device, from its open ports.
+
+    Returns {"tier", "score", "reasons"} where tier is one of
+    none/low/medium/high/critical. Pure function - no network I/O."""
+    ports = d.get("ports", []) or []
+    reasons, score, worst = [], 0, 0
+    seen = set()
+    for p in ports:
+        port = p.get("port")
+        info = RISKY_PORTS.get(port)
+        if info and port not in seen:
+            seen.add(port)
+            label, tier, why = info
+            w = RISK_TIERS.get(tier, 1)
+            score += w
+            worst = max(worst, w)
+            reasons.append({"port": port, "service": label, "tier": tier, "why": why})
+    n_open = len({p.get("port") for p in ports})
+    if n_open >= 15:
+        score += 2
+        worst = max(worst, 2)
+        reasons.append({"port": None, "service": "broad surface", "tier": "medium",
+                        "why": "%d open ports widen the attack surface" % n_open})
+    elif n_open >= 8:
+        score += 1
+        worst = max(worst, 1)
+    tier = _TIER_NAME.get(worst, "none") if n_open else "none"
+    return {"tier": tier, "score": score, "reasons": reasons}
 
 OUI = {
     "FCFBFB": "Apple", "F0F61C": "Apple", "A4B197": "Apple", "3C0754": "Apple",
@@ -1267,6 +1349,217 @@ def list_history():
 
 
 # --------------------------------------------------------------------------- #
+# Known-good baseline + proactive events (rogue / new-open-port detection)
+#
+# Approve the current network as a "baseline", then every later scan is diffed
+# against it. The first sighting of an unapproved device or an unapproved open
+# port becomes an event: logged locally and pushed to a webhook and/or MQTT.
+# All optional and configured via environment variables.
+# --------------------------------------------------------------------------- #
+
+BASELINE_FILE = os.path.join(DATA_DIR, "baseline.json")
+EVENTS_FILE = os.path.join(DATA_DIR, "events.json")
+ALERTS_FILE = os.path.join(DATA_DIR, "alerts_seen.json")
+EVENTS_MAX = 500
+NETSCANNER_WEBHOOK = os.environ.get("NETSCANNER_WEBHOOK", "").strip()
+NETSCANNER_MQTT = os.environ.get("NETSCANNER_MQTT", "").strip()          # host or host:port
+NETSCANNER_MQTT_TOPIC = os.environ.get("NETSCANNER_MQTT_TOPIC", "netscanner/events").strip()
+NETSCANNER_MQTT_USER = os.environ.get("NETSCANNER_MQTT_USER", "").strip()
+NETSCANNER_MQTT_PASS = os.environ.get("NETSCANNER_MQTT_PASS", "")
+
+
+def _bkey(d):
+    return d.get("mac") or d.get("ip")
+
+
+def _baseline_entry(d, now):
+    return {"ip": d.get("ip"), "mac": d.get("mac"),
+            "name": d.get("name") or d.get("hostname") or d.get("mdns_name"),
+            "ports": sorted({p.get("port") for p in d.get("ports", [])}),
+            "approved": now}
+
+
+def load_baseline():
+    return _load_json(BASELINE_FILE, {"created": None, "updated": None, "devices": {}})
+
+
+def save_baseline(b):
+    _save_json(BASELINE_FILE, b)
+    return b
+
+
+def baseline_from_devices(devices):
+    """Replace the baseline with the supplied devices (approve current state)."""
+    now = time.time()
+    b = load_baseline()
+    b["created"] = b.get("created") or now
+    b["updated"] = now
+    b["devices"] = {_bkey(d): _baseline_entry(d, now) for d in devices if _bkey(d)}
+    return save_baseline(b)
+
+
+def approve_devices(keys, devices):
+    """Add specific devices (by mac/ip key) to the existing baseline."""
+    now = time.time()
+    b = load_baseline()
+    b["created"] = b.get("created") or now
+    by = {_bkey(d): d for d in devices}
+    for k in keys:
+        if by.get(k):
+            b["devices"][k] = _baseline_entry(by[k], now)
+    b["updated"] = now
+    return save_baseline(b)
+
+
+def clear_baseline():
+    return save_baseline({"created": None, "updated": None, "devices": {}})
+
+
+def diff_against_baseline(devices, b=None):
+    """Compare devices to the baseline: rogue (unapproved) devices, unapproved
+    open ports on approved devices, and approved devices now missing."""
+    b = b if b is not None else load_baseline()
+    base = b.get("devices", {})
+    rogue, new_ports, seen = [], [], set()
+    for d in devices:
+        k = _bkey(d)
+        if not k:
+            continue
+        seen.add(k)
+        if k not in base:
+            rogue.append({"key": k, "ip": d.get("ip"), "mac": d.get("mac"),
+                          "name": d.get("name") or d.get("hostname") or d.get("mdns_name"),
+                          "vendor": d.get("vendor"), "device_type": d.get("device_type"),
+                          "open_ports": [p.get("port") for p in d.get("ports", [])],
+                          "risk": (d.get("risk") or risk_of(d)).get("tier")})
+        else:
+            approved = set(base[k].get("ports", []))
+            for p in d.get("ports", []):
+                if p.get("port") not in approved:
+                    new_ports.append({"key": k, "ip": d.get("ip"), "port": p.get("port"),
+                                      "service": p.get("service"), "url": p.get("url")})
+    missing = [{"key": k, "ip": v.get("ip"), "mac": v.get("mac"), "name": v.get("name")}
+               for k, v in base.items() if k not in seen]
+    return {"rogue_devices": rogue, "new_ports": new_ports,
+            "missing_devices": missing, "baseline_size": len(base)}
+
+
+def list_events(limit=100):
+    evs = _load_json(EVENTS_FILE, [])
+    return (evs[-int(limit):] if limit else evs)[::-1]
+
+
+def record_event(kind, data):
+    evs = _load_json(EVENTS_FILE, [])
+    ev = {"time": time.time(), "kind": kind, "data": data}
+    evs.append(ev)
+    if len(evs) > EVENTS_MAX:
+        evs = evs[-EVENTS_MAX:]
+    _save_json(EVENTS_FILE, evs)
+    return ev
+
+
+def _emit(events):
+    """Best-effort delivery of fresh events to webhook + MQTT, off-thread."""
+    if not events or not (NETSCANNER_WEBHOOK or NETSCANNER_MQTT):
+        return
+    payload = {"source": "netscanner", "host": get_primary_ip(),
+               "time": time.time(), "events": events}
+
+    def worker():
+        if NETSCANNER_WEBHOOK:
+            try:
+                req = urllib.request.Request(
+                    NETSCANNER_WEBHOOK, data=json.dumps(payload).encode("utf-8"),
+                    headers={"Content-Type": "application/json"})
+                urllib.request.urlopen(req, timeout=5).read()
+            except Exception:
+                pass
+        if NETSCANNER_MQTT:
+            try:
+                mqtt_publish(NETSCANNER_MQTT_TOPIC, json.dumps(payload))
+            except Exception:
+                pass
+
+    threading.Thread(target=worker, daemon=True).start()
+
+
+def evaluate_baseline(devices):
+    """Diff a finished scan against the baseline and emit an event the first
+    time each rogue device / unapproved open port is seen."""
+    b = load_baseline()
+    if not b.get("devices"):
+        return None  # no baseline -> nothing to police
+    diff = diff_against_baseline(devices, b)
+    seen = set(_load_json(ALERTS_FILE, []))
+    fresh = []
+    for r in diff["rogue_devices"]:
+        sig = "rogue:" + str(r["key"])
+        if sig not in seen:
+            seen.add(sig)
+            fresh.append(record_event("rogue_device", r))
+    for p in diff["new_ports"]:
+        sig = "port:%s:%s" % (p["key"], p["port"])
+        if sig not in seen:
+            seen.add(sig)
+            fresh.append(record_event("new_open_port", p))
+    _save_json(ALERTS_FILE, sorted(seen))
+    _emit(fresh)
+    return diff
+
+
+# ---- minimal MQTT 3.1.1 QoS0 publisher (stdlib sockets only) ----
+
+def _mqtt_rl(n):
+    out = bytearray()
+    while True:
+        byte = n % 128
+        n //= 128
+        if n > 0:
+            byte |= 0x80
+        out.append(byte)
+        if n == 0:
+            return bytes(out)
+
+
+def _mqtt_str(text):
+    raw = text.encode("utf-8")
+    return struct.pack("!H", len(raw)) + raw
+
+
+def mqtt_publish(topic, message, timeout=5):
+    """Publish one QoS0 message to NETSCANNER_MQTT ('host' or 'host:port'),
+    then disconnect. Returns True on success."""
+    host, _, port = NETSCANNER_MQTT.partition(":")
+    port = int(port) if port else 1883
+    flags = 0x02  # clean session
+    body = _mqtt_str("netscanner-%d" % (os.getpid() & 0xFFFF))
+    if NETSCANNER_MQTT_USER:
+        flags |= 0x80
+        body += _mqtt_str(NETSCANNER_MQTT_USER)
+        if NETSCANNER_MQTT_PASS:
+            flags |= 0x40
+            body += _mqtt_str(NETSCANNER_MQTT_PASS)
+    var = _mqtt_str("MQTT") + bytes([0x04, flags]) + struct.pack("!H", 60)
+    connect = bytes([0x10]) + _mqtt_rl(len(var + body)) + var + body
+    pub_var = _mqtt_str(topic)
+    pub_pay = message.encode("utf-8")
+    publish = bytes([0x30]) + _mqtt_rl(len(pub_var + pub_pay)) + pub_var + pub_pay
+    sock = socket.create_connection((host, port), timeout=timeout)
+    try:
+        sock.sendall(connect)
+        try:
+            sock.recv(4)  # CONNACK (best-effort)
+        except Exception:
+            pass
+        sock.sendall(publish)
+        sock.sendall(bytes([0xE0, 0x00]))  # DISCONNECT
+    finally:
+        sock.close()
+    return True
+
+
+# --------------------------------------------------------------------------- #
 # Job manager
 # --------------------------------------------------------------------------- #
 
@@ -1639,6 +1932,7 @@ def run_discovery(job, subnet, scan_ports=False, port_profile="quick",
                 changed = True
                 new_ports_total += 1
         d["changed"] = changed and not d["new"]
+        d["risk"] = risk_of(d)
         if d["new"]:
             new_devices.append(k)
     job["new_devices"] = new_devices
@@ -1647,6 +1941,10 @@ def run_discovery(job, subnet, scan_ports=False, port_profile="quick",
     if not job.get("cancel"):
         enrich_web(alive, job)
         update_presence(alive)
+        try:
+            evaluate_baseline(alive)
+        except Exception:
+            pass
 
     _finalize(job, alive, subnet, bool(job.get("cancel")))
 
@@ -1682,6 +1980,7 @@ def run_portscan(job, ip, profile="extended", req_workers="auto"):
                 op["new"] = op["port"] not in prev_ports
             d["ports"] = open_ports
             d["device_type"] = guess_device_type(d)
+            d["risk"] = risk_of(d)
             break
     if job.get("cancel"):
         job["stopped"] = True
@@ -1704,6 +2003,62 @@ def run_oui_download(job):
 
 
 # --------------------------------------------------------------------------- #
+# Synchronous API (used by the CLI and the MCP server)
+# --------------------------------------------------------------------------- #
+
+
+def discover(targets, scan_ports=False, port_profile="quick",
+             use_mdns=True, use_snmp=True, req_workers="auto"):
+    """Run one full discovery synchronously and return the result.
+
+    This is the building block shared by the ``--scan`` CLI and the MCP server:
+    it drives the same ``run_discovery`` pipeline the web UI uses, but in the
+    caller's thread, and hands back a plain dict instead of a background job.
+
+    Returns {"devices", "new_devices", "new_ports", "targets", "note", "error"}.
+    """
+    _jid, job = new_job("discovery")
+    run_discovery(job, targets, bool(scan_ports), port_profile,
+                  bool(use_mdns), bool(use_snmp), req_workers)
+    return {
+        "devices": job.get("devices", []),
+        "new_devices": job.get("new_devices", []),
+        "new_ports": job.get("new_ports", 0),
+        "targets": job.get("targets", []),
+        "note": job.get("note"),
+        "error": job.get("error"),
+    }
+
+
+def _print_scan_table(res):
+    """Human-readable summary of a discover() result for the CLI."""
+    devs = res.get("devices", [])
+    note = (" - " + res["note"]) if res.get("note") else ""
+    print("Found %d device(s)%s\n" % (len(devs), note))
+    hdr = "%-15s  %-17s  %-24s  %-8s  %s" % ("IP", "MAC", "NAME / HOSTNAME", "RISK", "OPEN PORTS")
+    print(hdr)
+    print("-" * len(hdr))
+    for d in devs:
+        ports = ",".join(str(p["port"]) for p in d.get("ports", []))
+        risk = (d.get("risk") or {}).get("tier", "none")
+        name = d.get("name") or d.get("hostname") or d.get("mdns_name") or ""
+        flags = []
+        if d.get("is_gateway"):
+            flags.append("GW")
+        if d.get("is_self"):
+            flags.append("YOU")
+        if d.get("new"):
+            flags.append("NEW")
+        nm = (name + (" [" + "/".join(flags) + "]" if flags else ""))[:24]
+        print("%-15s  %-17s  %-24s  %-8s  %s" % (
+            d.get("ip", ""), d.get("mac") or "-", nm, risk, ports or "-"))
+    nd = res.get("new_devices") or []
+    if nd:
+        print("\nNew since last scan: %d device(s), %d new port(s)." % (
+            len(nd), res.get("new_ports", 0)))
+
+
+# --------------------------------------------------------------------------- #
 # Export + UI loading
 # --------------------------------------------------------------------------- #
 
@@ -1722,6 +2077,192 @@ def devices_to_csv(devices):
                     d.get("latency") if d.get("latency") is not None else "",
                     "; ".join(d.get("mdns_services", [])), ports, urls])
     return buf.getvalue()
+
+
+OPENAPI_VERSION = "1.0.0"
+
+
+def openapi_spec():
+    """The OpenAPI 3.0 description of the HTTP API (single source of truth).
+
+    Served as JSON at /openapi.json and as YAML at /openapi.yaml."""
+    ok = {"description": "OK"}
+    job = {"200": {"description": "Job accepted",
+                   "content": {"application/json": {"schema": {"type": "object",
+                               "properties": {"job_id": {"type": "string"}}}}}}}
+    return {
+        "openapi": "3.0.3",
+        "info": {
+            "title": "NetScanner API",
+            "version": OPENAPI_VERSION,
+            "description": "Local network scanner & discovery engine. Discovers "
+                           "devices, ports and services, assesses exposure, tracks a "
+                           "known-good baseline, and exposes an MCP endpoint for AI agents. "
+                           "All data stays on the host.",
+            "license": {"name": "MIT"},
+        },
+        "servers": [{"url": "/", "description": "This NetScanner instance"}],
+        "tags": [
+            {"name": "discovery", "description": "Scan the network and inspect results"},
+            {"name": "devices", "description": "Per-device actions"},
+            {"name": "security", "description": "Baseline & proactive events"},
+            {"name": "system", "description": "Host info, vendor DB, export"},
+            {"name": "agent", "description": "Model Context Protocol endpoint"},
+        ],
+        "components": {
+            "securitySchemes": {
+                "bearerAuth": {"type": "http", "scheme": "bearer",
+                               "description": "Set NETSCANNER_TOKEN to require this on /mcp."}
+            }
+        },
+        "paths": {
+            "/api/info": {"get": {"tags": ["system"], "summary": "Host & network context",
+                "description": "Local IP, gateway, suggested subnet, platform, CPU count and OUI DB status.",
+                "responses": {"200": ok}}},
+            "/api/oui": {"get": {"tags": ["system"], "summary": "OUI vendor database status",
+                "responses": {"200": ok}}},
+            "/api/oui/download": {"post": {"tags": ["system"],
+                "summary": "Download the full IEEE OUI database (background job)",
+                "responses": job}},
+            "/api/scan": {"post": {"tags": ["discovery"], "summary": "Start a discovery scan",
+                "requestBody": {"required": True, "content": {"application/json": {"schema": {
+                    "type": "object", "required": ["subnet"], "properties": {
+                        "subnet": {"type": "string", "description": "CIDR/IP/range list, e.g. '192.168.1.0/24, 10.0.0.5'"},
+                        "scan_ports": {"type": "boolean"},
+                        "port_profile": {"type": "string", "enum": ["quick", "extended", "full"]},
+                        "use_mdns": {"type": "boolean"},
+                        "use_snmp": {"type": "boolean"},
+                        "workers": {"type": "string", "description": "number or 'auto'"}}}}}},
+                "responses": {"200": job["200"], "400": {"description": "subnet required"}}}},
+            "/api/job": {"get": {"tags": ["discovery"], "summary": "Poll a running/finished job",
+                "parameters": [{"name": "id", "in": "query", "required": True,
+                                "schema": {"type": "string"}}],
+                "responses": {"200": ok, "404": {"description": "no such job"}}}},
+            "/api/job/stop": {"post": {"tags": ["discovery"], "summary": "Cancel a running job",
+                "requestBody": {"required": True, "content": {"application/json": {"schema": {
+                    "type": "object", "required": ["id"], "properties": {"id": {"type": "string"}}}}}},
+                "responses": {"200": ok, "404": {"description": "no such job"}}}},
+            "/api/portscan": {"post": {"tags": ["discovery"], "summary": "Scan ports on one host",
+                "requestBody": {"required": True, "content": {"application/json": {"schema": {
+                    "type": "object", "required": ["ip"], "properties": {
+                        "ip": {"type": "string"},
+                        "profile": {"type": "string", "enum": ["quick", "extended", "full"]},
+                        "workers": {"type": "string"}}}}}},
+                "responses": {"200": job["200"], "400": {"description": "ip required"}}}},
+            "/api/history": {"get": {"tags": ["discovery"], "summary": "List scan snapshots, or fetch one",
+                "parameters": [{"name": "file", "in": "query", "required": False,
+                                "schema": {"type": "string"},
+                                "description": "e.g. scan_1700000000.json; omit to list all"}],
+                "responses": {"200": ok, "404": {"description": "not found"}}}},
+            "/api/export": {"get": {"tags": ["system"], "summary": "Export the latest results",
+                "parameters": [{"name": "format", "in": "query", "required": False,
+                                "schema": {"type": "string", "enum": ["json", "csv"]}}],
+                "responses": {"200": {"description": "File download (JSON or CSV)"}}}},
+            "/api/wol": {"post": {"tags": ["devices"], "summary": "Wake-on-LAN a MAC address",
+                "requestBody": {"required": True, "content": {"application/json": {"schema": {
+                    "type": "object", "required": ["mac"], "properties": {"mac": {"type": "string"}}}}}},
+                "responses": {"200": ok, "400": {"description": "bad mac"}}}},
+            "/api/device": {"post": {"tags": ["devices"], "summary": "Set a device name/notes (by MAC)",
+                "requestBody": {"required": True, "content": {"application/json": {"schema": {
+                    "type": "object", "required": ["mac"], "properties": {
+                        "mac": {"type": "string"}, "name": {"type": "string"},
+                        "notes": {"type": "string"}}}}}},
+                "responses": {"200": ok, "400": {"description": "mac required"}}}},
+            "/api/baseline": {
+                "get": {"tags": ["security"], "summary": "Get the known-good baseline + live diff",
+                        "responses": {"200": ok}},
+                "post": {"tags": ["security"], "summary": "Manage the baseline",
+                    "requestBody": {"required": True, "content": {"application/json": {"schema": {
+                        "type": "object", "properties": {
+                            "action": {"type": "string", "enum": ["set", "approve", "clear"]},
+                            "keys": {"type": "array", "items": {"type": "string"}}}}}}},
+                    "responses": {"200": ok, "400": {"description": "unknown action"}}}},
+            "/api/events": {"get": {"tags": ["security"], "summary": "Recent proactive events",
+                "parameters": [{"name": "limit", "in": "query", "required": False,
+                                "schema": {"type": "integer", "default": 100}}],
+                "responses": {"200": ok}}},
+            "/mcp": {"post": {"tags": ["agent"],
+                "summary": "Model Context Protocol endpoint (JSON-RPC 2.0)",
+                "description": "Streamable-HTTP MCP transport. Methods: initialize, "
+                               "tools/list, tools/call, ping. Gated by NETSCANNER_TOKEN when set.",
+                "security": [{"bearerAuth": []}],
+                "requestBody": {"required": True, "content": {"application/json": {"schema": {
+                    "type": "object", "properties": {
+                        "jsonrpc": {"type": "string", "enum": ["2.0"]},
+                        "id": {"type": ["integer", "string"]},
+                        "method": {"type": "string"},
+                        "params": {"type": "object"}}}}}},
+                "responses": {"200": {"description": "JSON-RPC response"},
+                              "202": {"description": "Accepted (notification, no body)"},
+                              "401": {"description": "Unauthorized"}}}},
+            "/openapi.json": {"get": {"tags": ["system"], "summary": "This spec as JSON",
+                "responses": {"200": ok}}},
+            "/openapi.yaml": {"get": {"tags": ["system"], "summary": "This spec as YAML",
+                "responses": {"200": ok}}},
+        },
+    }
+
+
+def _yaml_scalar(v):
+    if v is None:
+        return "null"
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    if isinstance(v, int):
+        return str(v)
+    if isinstance(v, float):
+        return repr(v)
+    return '"' + str(v).replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+_YAML_SPECIAL = set(" :/{}[]#,&*!|>%@`\"'")
+
+
+def _yaml_key(k):
+    sk = str(k)
+    if (not sk) or sk.isdigit() or sk.lower() in ("true", "false", "null", "yes", "no", "on", "off") \
+            or any(c in _YAML_SPECIAL for c in sk):
+        return _yaml_scalar(k)
+    return sk
+
+
+def _yaml_dict(obj, indent):
+    pad = "  " * indent
+    out = []
+    for k, v in obj.items():
+        kk = _yaml_key(k)
+        if isinstance(v, dict):
+            out.append("%s%s:" % (pad, kk)) if v else out.append("%s%s: {}" % (pad, kk))
+            if v:
+                out += _yaml_dict(v, indent + 1)
+        elif isinstance(v, list):
+            out.append("%s%s:" % (pad, kk)) if v else out.append("%s%s: []" % (pad, kk))
+            if v:
+                out += _yaml_list(v, indent)
+        else:
+            out.append("%s%s: %s" % (pad, kk, _yaml_scalar(v)))
+    return out
+
+
+def _yaml_list(items, indent):
+    pad = "  " * indent
+    out = []
+    for it in items:
+        if isinstance(it, dict) and it:
+            sub = _yaml_dict(it, indent + 1)
+            out.append(pad + "- " + sub[0][len("  " * (indent + 1)):])
+            out += sub[1:]
+        elif isinstance(it, list) and it:
+            sub = _yaml_list(it, indent + 1)
+            out.append(pad + "- " + sub[0][len("  " * (indent + 1)):])
+            out += sub[1:]
+        else:
+            out.append(pad + "- " + _yaml_scalar(it))
+    return out
+
+
+def openapi_yaml():
+    return "\n".join(_yaml_dict(openapi_spec(), 0)) + "\n"
 
 
 _UI_CACHE = None
@@ -1785,11 +2326,24 @@ class Handler(BaseHTTPRequestHandler):
         except Exception:
             return {}
 
+    def _token_ok(self):
+        """True if no token is configured, or the request presents the right one."""
+        if not NETSCANNER_TOKEN:
+            return True
+        hdr = self.headers.get("Authorization", "")
+        if hdr.startswith("Bearer "):
+            return hdr[7:].strip() == NETSCANNER_TOKEN
+        return (parse_qs(urlparse(self.path).query).get("token") or [""])[0] == NETSCANNER_TOKEN
+
     def do_GET(self):
         parsed = urlparse(self.path)
         path, qs = parsed.path, parse_qs(parsed.query)
         if path in ("/", "/index.html"):
             return self._send(200, load_ui(), "text/html; charset=utf-8")
+        if path == "/openapi.json":
+            return self._send(200, json.dumps(openapi_spec(), indent=2), "application/json")
+        if path in ("/openapi.yaml", "/openapi.yml"):
+            return self._send(200, openapi_yaml(), "application/yaml; charset=utf-8")
         if path == "/api/info":
             return self._send(200, {
                 "subnet": default_subnet(), "local_ip": get_primary_ip(),
@@ -1817,11 +2371,41 @@ class Handler(BaseHTTPRequestHandler):
                                   {"Content-Disposition": "attachment; filename=netscan.csv"})
             return self._send(200, json.dumps(devs, indent=2), "application/json",
                               {"Content-Disposition": "attachment; filename=netscan.json"})
+        if path == "/api/baseline":
+            b = load_baseline()
+            diff = diff_against_baseline(LAST_RESULTS.get("devices", []), b) \
+                if b.get("devices") else None
+            return self._send(200, {
+                "created": b.get("created"), "updated": b.get("updated"),
+                "size": len(b.get("devices", {})),
+                "devices": list(b.get("devices", {}).values()), "diff": diff})
+        if path == "/api/events":
+            try:
+                limit = int((qs.get("limit") or ["100"])[0])
+            except Exception:
+                limit = 100
+            return self._send(200, {"events": list_events(limit)})
         return self._send(404, {"error": "not found"})
 
     def do_POST(self):
         path = urlparse(self.path).path
         data = self._body()
+        if path == "/mcp":
+            if not self._token_ok():
+                return self._send(401, {"error": "unauthorized"},
+                                  extra={"WWW-Authenticate": "Bearer"})
+            try:
+                import netscanner_mcp as mcpmod
+            except Exception as e:
+                return self._send(500, {"error": "MCP module unavailable: %s" % e})
+            # Bind the MCP tools to *this* running engine instance so /mcp sees
+            # the same live scan results and jobs the web UI does.
+            mcpmod.engine = sys.modules[__name__]
+            items = data if isinstance(data, list) else [data]
+            out = [r for r in (mcpmod.dispatch(it) for it in items) if r is not None]
+            if not out:
+                return self._send(202, b"")  # only notifications -> no body
+            return self._send(200, out if isinstance(data, list) else out[0])
         if path == "/api/scan":
             subnet = (data.get("subnet") or "").strip()
             if not subnet:
@@ -1866,6 +2450,23 @@ class Handler(BaseHTTPRequestHandler):
                     if data.get("notes") is not None:
                         d["notes"] = data.get("notes")
             return self._send(200, {"ok": ok})
+        if path == "/api/baseline":
+            action = (data.get("action") or "set").strip().lower()
+            devs = LAST_RESULTS.get("devices", [])
+            if action == "set":
+                b = baseline_from_devices(devs)
+                _save_json(ALERTS_FILE, [])  # reset alert de-dup state
+                return self._send(200, {"ok": True, "action": "set",
+                                        "size": len(b.get("devices", {}))})
+            if action == "clear":
+                clear_baseline()
+                _save_json(ALERTS_FILE, [])
+                return self._send(200, {"ok": True, "action": "clear", "size": 0})
+            if action == "approve":
+                b = approve_devices(data.get("keys") or [], devs)
+                return self._send(200, {"ok": True, "action": "approve",
+                                        "size": len(b.get("devices", {}))})
+            return self._send(400, {"error": "unknown action"})
         return self._send(404, {"error": "not found"})
 
 
@@ -1893,7 +2494,34 @@ def main():
     ap.add_argument("--port", type=int, default=int(os.environ.get("NETSCANNER_PORT", "8765")))
     ap.add_argument("--no-browser", action="store_true",
                     default=bool(os.environ.get("NETSCANNER_NO_BROWSER")))
+    # One-shot CLI scan (no server) - handy for scripts, cron and AI agents.
+    ap.add_argument("--scan", metavar="TARGETS",
+                    help="Scan TARGETS (CIDR/IP/range list, e.g. '192.168.1.0/24') once and exit")
+    ap.add_argument("--ports", action="store_true",
+                    help="With --scan: also scan ports on each live host")
+    ap.add_argument("--profile", default="quick", choices=list(PORT_PROFILES),
+                    help="With --ports: port profile (default: quick)")
+    ap.add_argument("--workers", default="auto",
+                    help="Worker count or 'auto' (default: auto)")
+    ap.add_argument("--no-mdns", action="store_true", help="With --scan: skip mDNS discovery")
+    ap.add_argument("--no-snmp", action="store_true", help="With --scan: skip SNMP probing")
+    ap.add_argument("--json", action="store_true",
+                    help="With --scan: print the result as JSON instead of a table")
     args = ap.parse_args()
+
+    if args.scan:
+        res = discover(args.scan, scan_ports=args.ports, port_profile=args.profile,
+                       use_mdns=not args.no_mdns, use_snmp=not args.no_snmp,
+                       req_workers=args.workers)
+        if res.get("error"):
+            print(json.dumps({"error": res["error"]}) if args.json
+                  else ("Error: " + res["error"]), file=sys.stderr)
+            return 1
+        if args.json:
+            print(json.dumps(res, indent=2))
+        else:
+            _print_scan_table(res)
+        return 0
 
     port = find_free_port(args.port, args.host)
     httpd = ThreadingHTTPServer((args.host, port), Handler)
@@ -1917,4 +2545,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main() or 0)
