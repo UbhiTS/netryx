@@ -565,26 +565,98 @@ def _snmp_parse(data):
     return res
 
 
-def snmp_get(ip, oids, community="public", timeout=0.9):
+def _snmp_send(ip, oids, pdu_tag, community, timeout, port=161):
+    """Send a v2c PDU (0xA0 GET / 0xA1 GETNEXT) and return the raw response bytes."""
     req_id = random.randint(1, 0x7FFFFFFF)
     vbs = b""
     for oid in oids:
         vbs += _ber(0x30, _ber_oid(oid) + _ber(0x05, b""))
-    pdu = _ber(0xA0, _ber_int(req_id) + _ber_int(0) + _ber_int(0) + _ber(0x30, vbs))
+    pdu = _ber(pdu_tag, _ber_int(req_id) + _ber_int(0) + _ber_int(0) + _ber(0x30, vbs))
     msg = _ber(0x30, _ber_int(1) + _ber(0x04, community.encode()) + pdu)  # version 1 == v2c
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     s.settimeout(timeout)
     try:
-        s.sendto(msg, (ip, 161))
-        data, _ = s.recvfrom(4096)
-        return _snmp_parse(data)
-    except Exception:
-        return {}
+        s.sendto(msg, (ip, int(port)))
+        data, _ = s.recvfrom(8192)
+        return data
     finally:
         try:
             s.close()
         except Exception:
             pass
+
+
+def _snmp_parse_vbs(data):
+    """Parse a response into (error_status, [(oid, value_tag, value), ...]), in order."""
+    err, vbs = 0, []
+    try:
+        top = _ber_tlvs(data)
+        if not top:
+            return err, vbs
+        seq = _ber_tlvs(top[0][1])
+        pdu = None
+        for tag, body in seq:
+            if 0xA0 <= tag <= 0xA5:
+                pdu = body
+        if pdu is None:
+            return err, vbs
+        items = _ber_tlvs(pdu)
+        if len(items) >= 2 and items[1][0] == 0x02 and items[1][1]:
+            err = int.from_bytes(items[1][1], "big")
+        vblist = None
+        for tag, body in items:
+            if tag == 0x30:
+                vblist = body
+        if vblist is None:
+            return err, vbs
+        for _t, body in _ber_tlvs(vblist):
+            kv = _ber_tlvs(body)
+            if len(kv) >= 2:
+                vbs.append((_decode_oid(kv[0][1]), kv[1][0], _decode_val(kv[1][0], kv[1][1])))
+    except Exception:
+        pass
+    return err, vbs
+
+
+def snmp_get(ip, oids, community="public", timeout=0.9, port=161):
+    """SNMP v2c GET one or more OIDs. Returns {oid: value} ({} on no response)."""
+    try:
+        data = _snmp_send(ip, oids, 0xA0, community, timeout, port)
+    except Exception:
+        return {}
+    _err, vbs = _snmp_parse_vbs(data)
+    return {oid: val for oid, _tag, val in vbs}
+
+
+def snmp_walk(ip, base_oid, community="public", timeout=0.9, max_rows=256, port=161):
+    """SNMP v2c walk (GETNEXT) of a subtree. Returns [{oid, value}, ...] in order."""
+    base = (base_oid or "").strip().strip(".")
+    if not base:
+        return []
+    prefix, cur, rows, seen = base + ".", base, [], set()
+    try:
+        max_rows = max(1, min(5000, int(max_rows)))
+    except Exception:
+        max_rows = 256
+    for _ in range(max_rows):
+        try:
+            data = _snmp_send(ip, [cur], 0xA1, community, timeout, port)
+        except Exception:
+            break
+        err, vbs = _snmp_parse_vbs(data)
+        if err or not vbs:
+            break
+        oid, tag, val = vbs[0]
+        if tag in (0x80, 0x81, 0x82):       # noSuchObject / noSuchInstance / endOfMibView
+            break
+        if not (oid == base or oid.startswith(prefix)):
+            break
+        if oid in seen:                     # guard against agents that loop
+            break
+        seen.add(oid)
+        rows.append({"oid": oid, "value": val})
+        cur = oid
+    return rows
 
 
 def snmp_probe(ip):
@@ -2385,6 +2457,18 @@ def openapi_spec():
                 "parameters": [{"name": "format", "in": "query", "required": False,
                                 "schema": {"type": "string", "enum": ["json", "csv"]}}],
                 "responses": {"200": {"description": "File download (JSON or CSV)"}}}},
+            "/api/snmp": {"post": {"tags": ["devices"],
+                "summary": "Send an SNMP v2c GET or walk to a host",
+                "requestBody": {"required": True, "content": {"application/json": {"schema": {
+                    "type": "object", "required": ["ip"], "properties": {
+                        "ip": {"type": "string"},
+                        "oid": {"type": "string", "description": "Single OID (or subtree root when walk=true)"},
+                        "oids": {"type": "array", "items": {"type": "string"}},
+                        "community": {"type": "string", "description": "Default 'public'"},
+                        "walk": {"type": "boolean", "description": "GETNEXT-walk the subtree under 'oid'"},
+                        "max_rows": {"type": "integer", "description": "Walk row cap (default 256)"},
+                        "timeout": {"type": "number"}, "port": {"type": "integer", "description": "Default 161"}}}}}},
+                "responses": {"200": ok, "400": {"description": "ip / oid required"}}}},
             "/api/wol": {"post": {"tags": ["devices"], "summary": "Wake-on-LAN a MAC address",
                 "requestBody": {"required": True, "content": {"application/json": {"schema": {
                     "type": "object", "required": ["mac"], "properties": {"mac": {"type": "string"}}}}}},
@@ -2765,6 +2849,34 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, {"ok": wake_on_lan((data.get("mac") or "").strip())})
             except Exception as e:
                 return self._send(400, {"error": str(e)})
+        if path == "/api/snmp":
+            ip = (data.get("ip") or data.get("host") or "").strip()
+            if not ip:
+                return self._send(400, {"error": "ip (or host) required"})
+            community = data.get("community") or "public"
+            try:
+                timeout = max(0.2, min(5.0, float(data.get("timeout", 1.5))))
+            except Exception:
+                timeout = 1.5
+            try:
+                port = int(data.get("port", 161))
+            except Exception:
+                port = 161
+            if data.get("walk"):
+                base = (data.get("oid") or "").strip()
+                if not base and data.get("oids"):
+                    base = str(data["oids"][0])
+                if not base:
+                    return self._send(400, {"error": "oid (subtree root) required for walk"})
+                rows = snmp_walk(ip, base, community, timeout, data.get("max_rows", 256), port)
+                return self._send(200, {"ip": ip, "walk": base, "community": community,
+                                        "count": len(rows), "results": rows})
+            oids = data.get("oids") or ([data.get("oid")] if data.get("oid") else [])
+            if not oids:
+                return self._send(400, {"error": "oid or oids required"})
+            res = snmp_get(ip, oids, community, timeout, port)
+            return self._send(200, {"ip": ip, "community": community, "results": res,
+                "note": None if res else "no response (host unreachable, SNMP disabled, or wrong community)"})
         if path == "/api/device":
             mac = (data.get("mac") or "").strip().lower()
             if not mac:

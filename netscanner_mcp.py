@@ -224,6 +224,41 @@ def tool_wake_device(args):
     return {"ok": bool(ok), "mac": mac}
 
 
+def _snmp_args(args):
+    ip = (args.get("ip") or args.get("host") or "").strip()
+    if not ip:
+        raise ValueError("provide 'ip'")
+    community = args.get("community") or "public"
+    try:
+        timeout = max(0.2, min(5.0, float(args.get("timeout", 1.5))))
+    except Exception:
+        timeout = 1.5
+    try:
+        port = int(args.get("port", 161))
+    except Exception:
+        port = 161
+    return ip, community, timeout, port
+
+
+def tool_snmp_get(args):
+    ip, community, timeout, port = _snmp_args(args)
+    oids = args.get("oids") or ([args.get("oid")] if args.get("oid") else [])
+    if not oids:
+        raise ValueError("provide 'oid' or 'oids'")
+    res = engine.snmp_get(ip, oids, community, timeout, port)
+    return {"ip": ip, "community": community, "results": res,
+            "note": None if res else "no response (host unreachable, SNMP disabled, or wrong community)"}
+
+
+def tool_snmp_walk(args):
+    ip, community, timeout, port = _snmp_args(args)
+    base = (args.get("oid") or args.get("base_oid") or "").strip()
+    if not base:
+        raise ValueError("provide 'oid' (the subtree root to walk)")
+    rows = engine.snmp_walk(ip, base, community, timeout, args.get("max_rows", 256), port)
+    return {"ip": ip, "base_oid": base, "community": community, "count": len(rows), "results": rows}
+
+
 def tool_name_device(args):
     mac = (args.get("mac") or "").strip().lower()
     if not mac:
@@ -380,6 +415,40 @@ TOOLS = [
             "required": ["mac"],
         },
         "_fn": tool_wake_device,
+    },
+    {
+        "name": "snmp_get",
+        "description": "Send an SNMP v2c GET to a host and return the value(s) for one or more OIDs. Read specific values from switches, printers, access points, UPSes, NAS units, etc.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "ip": {"type": "string", "description": "Target host IP."},
+                "oid": {"type": "string", "description": "A single OID, e.g. 1.3.6.1.2.1.1.5.0 (sysName)."},
+                "oids": {"type": "array", "items": {"type": "string"}, "description": "Multiple OIDs in one request."},
+                "community": {"type": "string", "description": "SNMP community string. Default 'public'."},
+                "timeout": {"type": "number", "description": "Seconds to wait (default 1.5)."},
+                "port": {"type": "integer", "description": "UDP port (default 161)."}
+            },
+            "required": ["ip"]
+        },
+        "_fn": tool_snmp_get,
+    },
+    {
+        "name": "snmp_walk",
+        "description": "Walk an SNMP v2c subtree (GETNEXT) under an OID and return every row in order - e.g. an interface table (ifDescr), ARP table, or printer supply levels.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "ip": {"type": "string", "description": "Target host IP."},
+                "oid": {"type": "string", "description": "Subtree root OID to walk, e.g. 1.3.6.1.2.1.2.2.1.2 (ifDescr)."},
+                "community": {"type": "string", "description": "SNMP community string. Default 'public'."},
+                "max_rows": {"type": "integer", "description": "Maximum rows to return (default 256)."},
+                "timeout": {"type": "number", "description": "Per-request seconds (default 1.5)."},
+                "port": {"type": "integer", "description": "UDP port (default 161)."}
+            },
+            "required": ["ip", "oid"]
+        },
+        "_fn": tool_snmp_walk,
     },
     {
         "name": "name_device",

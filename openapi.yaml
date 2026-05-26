@@ -216,6 +216,48 @@ paths:
       responses:
         "200":
           description: "File download (JSON or CSV)"
+  "/api/snmp":
+    post:
+      tags:
+      - "devices"
+      summary: "Send an SNMP v2c GET or walk to a host"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              type: "object"
+              required:
+              - "ip"
+              properties:
+                ip:
+                  type: "string"
+                oid:
+                  type: "string"
+                  description: "Single OID (or subtree root when walk=true)"
+                oids:
+                  type: "array"
+                  items:
+                    type: "string"
+                community:
+                  type: "string"
+                  description: "Default 'public'"
+                walk:
+                  type: "boolean"
+                  description: "GETNEXT-walk the subtree under 'oid'"
+                max_rows:
+                  type: "integer"
+                  description: "Walk row cap (default 256)"
+                timeout:
+                  type: "number"
+                port:
+                  type: "integer"
+                  description: "Default 161"
+      responses:
+        "200":
+          description: "OK"
+        "400":
+          description: "ip / oid required"
   "/api/wol":
     post:
       tags:
