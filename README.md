@@ -131,33 +131,4 @@ docker run -d --name netscanner --network host \
   expose it to your whole LAN — appropriate for a NAS, but don't expose it to the
   internet.
 - **Full** port scans (65,535 ports/host) are thorough but slow — best used on a
-  single host via the per-device **Scan ports** button.
-- The downloaded vendor database is saved in the data folder and loaded
-  automatically on the next scan.
-
-## Ethical use
-
-Only scan networks you own or are authorized to test.
-
----
-
-## Continuous integration
-
-This repo ships a GitHub Actions workflow (`.github/workflows/build.yml`) that runs on every push and pull request:
-
-- **Docker image** → built and pushed to the GitHub Container Registry (GHCR) as `ghcr.io/<owner>/<repo>:latest` (and a `:<commit-sha>` tag). Pull and run it on your NAS with:
-
-  ```
-  docker run -d --name netscanner --network host \
-    --cap-add NET_RAW --cap-add NET_ADMIN \
-    -v "$PWD/netscanner-data:/data" --restart unless-stopped \
-    ghcr.io/<owner>/<repo>:latest
-  ```
-
-- **Standalone Windows .exe** → built with PyInstaller on a Windows runner and uploaded as a build **artifact** on every run. Pushing a version tag (e.g. `git tag v1.0.0 && git push --tags`) also publishes the `.exe` on a GitHub **Release**.
-
-No secrets are required — the workflow authenticates to GHCR with the built-in `GITHUB_TOKEN`. After the first successful run, make the GHCR package public from your repo's *Packages* page if you want others to pull it.
-
-## Privacy
-
-Your scan results are local only. `.gitignore` excludes `netscanner_data/` (IPs, MACs, hostnames, device names/notes, scan history) and common secret files so they're never committed.
+  single host v

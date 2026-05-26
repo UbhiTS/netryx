@@ -30,10 +30,4 @@ echo     %~dp0dist\NetScanner.exe
 echo ===================================================================
 echo.
 pause
-goto :eof
-
-:fail
-echo.
-echo  Build failed. Make sure Python and pip are installed and on PATH.
-echo.
-pause
+goto :

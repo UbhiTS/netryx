@@ -66,3 +66,6 @@ desktop.ini
 .idea/
 *.swp
 *~
+
+# stray test artifact created during setup
+.gittest

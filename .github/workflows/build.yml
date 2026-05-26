@@ -1,14 +1,15 @@
 name: build
 
 # Build the Docker image and the standalone Windows .exe on every push / PR.
+# Push a version tag (e.g. v0.0.1) to also publish a GitHub Release + versioned image.
 on:
   push:
   pull_request:
   workflow_dispatch:
 
 permissions:
-  contents: write   # attach the .exe to a GitHub Release on version tags
-  packages: write   # push the Docker image to GHCR (GitHub Container Registry)
+  contents: write   # publish the Release + attach the .exe on version tags
+  packages: write   # push the Docker image to GHCR
 
 jobs:
   docker:
@@ -16,10 +17,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      # GHCR requires a lowercase image path; owner names may contain capitals.
-      - name: Compute lowercase image name
-        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
 
       - uses: docker/setup-buildx-action@v3
 
@@ -31,15 +28,29 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Builds on every event; only pushes on non-PR events (forked PRs can't push).
+      # metadata-action lowercases the image name and computes the tag set:
+      #   - on a version tag v0.0.1  ->  :v0.0.1, :0.0.1, :latest, :sha-xxxxxxx
+      #   - on a branch push (main)  ->  :main, :sha-xxxxxxx   (NOT :latest)
+      # 'latest=auto' moves :latest to the NEWEST version tag and off the older ones.
+      - name: Image tags & labels
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          flavor: latest=auto
+          tags: |
+            type=semver,pattern=v{{version}}
+            type=semver,pattern={{version}}
+            type=ref,event=branch
+            type=sha
+
       - name: Build and push image
         uses: docker/build-push-action@v6
         with:
           context: .
           push: ${{ github.event_name != 'pull_request' }}
-          tags: |
-            ${{ env.IMAGE }}:latest
-            ${{ env.IMAGE }}:${{ github.sha }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
 
   windows-exe:
     name: Standalone Windows .exe
@@ -54,7 +65,6 @@ jobs:
       - name: Install PyInstaller
         run: pip install pyinstaller
 
-      # ui.html is bundled into the exe (the app reads it at runtime).
       - name: Build NetScanner.exe
         run: pyinstaller --onefile --name NetScanner --console --add-data "ui.html;." netscanner.py
 
@@ -65,9 +75,12 @@ jobs:
           path: dist/NetScanner.exe
           if-no-files-found: error
 
-      # Pushing a tag like v1.0.0 also publishes the exe on a GitHub Release.
-      - name: Attach exe to release (tags only)
+      # On a version tag: publish a GitHub Release with the .exe and mark it "Latest".
+      # GitHub automatically un-marks the previous release as Latest.
+      - name: Publish release (tags only)
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           files: dist/NetScanner.exe
+          make_latest: "true"
+          generate_release_notes: true
