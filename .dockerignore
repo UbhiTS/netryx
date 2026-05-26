@@ -1,0 +1,12 @@
+netscanner_data/
+netscanner-data/
+__pycache__/
+*.pyc
+*.log
+*.png
+*.pdf
+make_plate.py
+DESIGN_PHILOSOPHY.md
+signal_cartography.*
+run.bat
+build.bat

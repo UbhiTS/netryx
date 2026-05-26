@@ -1,0 +1,25 @@
+# NetScanner on Docker (ideal for a NAS).
+#
+#   docker compose up -d --build
+#   then open  http://<your-NAS-IP>:8765
+#
+# HOST networking is required: a bridged container is isolated on its own
+# virtual network and cannot discover devices on your real LAN (no ARP, no
+# ping sweep visibility, no mDNS/SNMP). network_mode: host fixes that.
+
+services:
+  netscanner:
+    build: .
+    image: netscanner:latest
+    container_name: netscanner
+    network_mode: host          # REQUIRED — see your real LAN. Do not change to bridge.
+    cap_add:
+      - NET_RAW                 # ICMP ping
+      - NET_ADMIN
+    environment:
+      - NETSCANNER_HOST=0.0.0.0
+      - NETSCANNER_PORT=8765    # change if 8765 is taken on the NAS
+      - NETSCANNER_NO_BROWSER=1
+    volumes:
+      - ./netscanner-data:/data # history, device names/notes, downloaded vendor DB
+    restart: unless-stopped
