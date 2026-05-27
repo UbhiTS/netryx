@@ -227,6 +227,43 @@ open port** appears, Netryx logs an event and (optionally) pushes it out.
 Pair this with **Live monitoring** in the UI (or a cron'd `--scan`) for continuous
 rogue-device detection with push notifications.
 
+### Real-time events & push
+
+Netryx emits events the moment they're detected and pushes them over four
+transports, all fed by one event log. Every event has the shape:
+
+```json
+{ "id": 42, "time": 1700000000.0, "kind": "rogue_device", "severity": "critical",
+  "data": { "ip": "192.168.1.55", "name": "...", "open_ports": [23, 445] } }
+```
+
+Event kinds (and severity):
+
+| kind | severity | fired when |
+|------|----------|-----------|
+| `rogue_device` | critical | a device not in the known-good baseline appears |
+| `new_open_port` | high | an unapproved port opens on a baselined device |
+| `exposure_alert` | high | a device reaches the **critical** risk tier (Telnet/RDP/SMB/exposed DB, …) |
+| `device_missing` | warning | a baselined device disappears (reserved) |
+| `scan_complete` | info | a scan finishes (carries device/new/new-port counts) |
+
+Consume them however suits the client:
+
+- **MCP notifications (stdio):** call the `subscribe` tool (optional `min_severity`
+  and `kinds` filters). The server then pushes a JSON-RPC notification
+  `notifications/netryx/event` for each matching event; `unsubscribe` stops it.
+- **Server-Sent Events:** `GET /api/events/stream` (`text/event-stream`); replays
+  events after `?since=<id>` then streams live. Browser: `new EventSource('/api/events/stream')`
+  (session cookie). Agent: add `?token=nsk_…` (EventSource can't send headers).
+- **Long-poll:** `GET /api/events/poll?since=<id>&timeout=25` blocks until a newer
+  event exists, returning `{events, seq}`; re-poll with the new `seq`.
+- **Webhook / MQTT:** set `NETRYX_WEBHOOK` and/or `NETRYX_MQTT` (below) — every
+  event is delivered there too.
+
+`GET /api/events?limit=N` returns the recent log for pull-based clients. The
+dashboard's **Events** panel subscribes to the SSE stream and surfaces
+high/critical alerts as live toasts (and desktop notifications if enabled).
+
 ### Environment variables
 
 | Variable | Purpose |

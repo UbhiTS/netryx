@@ -1603,8 +1603,9 @@ def record_event(kind, data):
 
 
 def _sse_frame(e):
-    return ("id: %d\nevent: %s\ndata: %s\n\n"
-            % (e.get("id", 0), e.get("kind", "event"), json.dumps(e))).encode("utf-8")
+    # No "event:" line so browser EventSource.onmessage receives every event;
+    # kind/severity live inside the JSON payload.
+    return ("id: %d\ndata: %s\n\n" % (e.get("id", 0), json.dumps(e))).encode("utf-8")
 
 
 try:
@@ -2924,10 +2925,10 @@ class Handler(BaseHTTPRequestHandler):
             EVENT_HUB.wait(since, timeout)
             return self._send(200, {"events": events_since(since), "seq": EVENT_HUB.seq})
         if path == "/api/events/stream":
-            try:
-                last = int((qs.get("since") or ["0"])[0])
-            except Exception:
-                last = 0
+            sv = (qs.get("since") or [None])[0]
+            if sv is None:                       # honor EventSource reconnect header
+                sv = self.headers.get("Last-Event-ID") or "0"
+            last = int(sv) if str(sv).isdigit() else 0
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream; charset=utf-8")
             self.send_header("Cache-Control", "no-store")

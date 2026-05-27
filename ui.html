@@ -423,6 +423,7 @@ let scanning=false;
 let etaKey='', etaSamples=[];
 let baseline=null, ROGUE=new Set(), DRIFT=new Map();
 let appInfo=null;
+let liveMaxId=0, evtSrc=null;   // live event stream (SSE) state
 
 const TYPE_META={
   "Router / Gateway":{c:"#ecb24a"},"Network device":{c:"#ecb24a"},
@@ -1294,6 +1295,42 @@ async function loadLast(){
     }
   }catch(e){}
 }
+function eventLabel(ev){
+  const d=ev.data||{};
+  if(ev.kind==='rogue_device')return 'Rogue device '+(d.ip||'')+(d.name?(' ('+d.name+')'):'');
+  if(ev.kind==='new_open_port')return 'New open port '+(d.port||'')+' on '+(d.ip||'');
+  if(ev.kind==='exposure_alert')return 'Critical exposure: '+(d.ip||'')+(d.name?(' ('+d.name+')'):'');
+  if(ev.kind==='device_missing')return 'Device offline: '+(d.ip||'');
+  if(ev.kind==='scan_complete')return 'Scan complete — '+(d.count||0)+' devices';
+  return ev.kind||'event';
+}
+function onLiveEvent(e){
+  let ev; try{ev=JSON.parse(e.data);}catch(_){return;}
+  if(!ev||!ev.id||ev.id<=liveMaxId)return;   // dedup (handles reconnect replays)
+  liveMaxId=ev.id;
+  if(ev.severity==='critical'||ev.severity==='high'){
+    toast(eventLabel(ev), ev.severity==='critical'?'red':'amber');
+    const nb=document.getElementById('notify');
+    if(nb&&nb.checked&&('Notification'in window)&&Notification.permission==='granted'){
+      try{new Notification('Netryx alert',{body:eventLabel(ev)});}catch(_){}
+    }
+  }
+  if(ev.kind==='rogue_device'||ev.kind==='new_open_port'||ev.kind==='exposure_alert')loadBaseline(false);
+  if(view==='events')renderEvents();   // refresh the live feed if it's on screen
+}
+async function startEventStream(){
+  if(!('EventSource'in window))return;
+  // Connect from the newest event so we don't replay (and re-toast) the backlog.
+  let since=0;
+  try{const r=await api('/api/events?limit=1'); if(r.events&&r.events.length)since=r.events[0].id||0;}catch(_){}
+  liveMaxId=since;
+  try{
+    if(evtSrc)evtSrc.close();
+    evtSrc=new EventSource('/api/events/stream?since='+since);
+    evtSrc.onmessage=onLiveEvent;
+    evtSrc.onerror=function(){};   // EventSource auto-reconnects
+  }catch(_){}
+}
 async function renderEvents(){
   const body=document.getElementById('events-body');
   body.innerHTML='<p class="hint">Loading…</p>';
@@ -1403,6 +1440,7 @@ window.addEventListener('resize',()=>{if(view==='map')renderTopo();});
 loadInfo();
 loadBaseline(false);
 loadLast();
+startEventStream();
 // Restore the view from the URL hash on load, and keep Back/Forward + refresh in sync.
 (function(){
   const VALID=['table','cards','map','hist','events','settings'];
