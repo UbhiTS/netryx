@@ -377,12 +377,30 @@ textarea.ceinput{min-height:58px;resize:vertical}
   <div id="view-cards" style="display:none"><div class="grid" id="grid"></div></div>
   <div id="view-table"><div class="tablewrap"><table class="dev" id="tbl"></table></div></div>
   <div id="view-map" style="display:none">
-    <div class="seg mapbar">
-      <button data-m="graph" class="active" onclick="setMapMode('graph')">Graph</button>
-      <button data-m="neighborhoods" onclick="setMapMode('neighborhoods')">Neighborhoods</button>
-      <button data-m="exposure" onclick="setMapMode('exposure')">Exposure</button>
-      <button data-m="changes" onclick="setMapMode('changes')">Changes</button>
-      <button data-m="ipgrid" onclick="setMapMode('ipgrid')">IP grid</button>
+    <div class="mapbar" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+      <div class="seg">
+        <button data-m="graph" class="active" onclick="setMapMode('graph')">Graph</button>
+        <button data-m="neighborhoods" onclick="setMapMode('neighborhoods')">Neighborhoods</button>
+        <button data-m="exposure" onclick="setMapMode('exposure')">Exposure</button>
+        <button data-m="changes" onclick="setMapMode('changes')">Changes</button>
+        <button data-m="ipgrid" onclick="setMapMode('ipgrid')">IP grid</button>
+      </div>
+      <span class="wsel" title="Choose what to label nodes with">Label
+        <select id="maplabel" onchange="setMapLabel(this.value)">
+          <option value="name">Name</option>
+          <option value="ip">IP (last octet)</option>
+          <option value="ipfull">IP (full)</option>
+          <option value="mac">MAC</option>
+          <option value="vendor">Vendor</option>
+          <option value="type">Type</option>
+          <option value="os">OS</option>
+          <option value="model">Model</option>
+          <option value="reach">Reach</option>
+          <option value="latency">Latency</option>
+          <option value="seen">Seen</option>
+          <option value="ports">Open ports</option>
+        </select>
+      </span>
     </div>
     <div id="topo">
       <div class="tip" id="tip"></div>
@@ -753,11 +771,26 @@ function visible(){
   return list;
 }
 function dispName(d){return d.name||d.mdns_name||d.hostname||d.vendor||'Unknown device';}
+function nodeField(d,f){
+  switch(f){
+    case 'name': {let s=d.name||d.mdns_name||d.hostname; return s?(''+s).replace(/\.local$/i,''):'';}
+    case 'ipfull': return d.ip||'';
+    case 'mac': return d.mac||'';
+    case 'vendor': return d.vendor||'';
+    case 'type': return d.device_type||'';
+    case 'os': return d.os||'';
+    case 'model': return d.model||'';
+    case 'reach': return d.detect?((d.detect==='tcp'?'TCP':'ping')+(d.hops!=null?(' '+d.hops+'h'):'')):'';
+    case 'latency': return d.latency!=null?(d.latency+'ms'):'';
+    case 'seen': return d.seen_count?('×'+d.seen_count):'';
+    case 'ports': return ((d.ports||[]).length)+'p';
+    default: return d.ip?d.ip.split('.').pop():'';   // 'ip' = last octet
+  }
+}
 function leafLabel(d){
-  // Prefer a friendly name on map leaves; fall back to the IP's last octet.
-  let s=d.name||d.mdns_name||d.hostname;
-  if(s){ s=(''+s).replace(/\.local$/i,''); return s.length>16?s.slice(0,15)+'…':s; }
-  return d.ip ? d.ip.split('.').pop() : '?';
+  let s=nodeField(d,mapLabel);
+  if(!s) s=d.ip?d.ip.split('.').pop():'?';   // fall back to IP last octet
+  return s.length>16?s.slice(0,15)+'…':s;
 }
 function renderIfChanged(){
   const k=devices.map(d=>d.ip+':'+((d.ports||[]).length)+':'+(d.new?1:0)+':'+(d.name||'')+':'+(d.device_type||'')).join('|');
@@ -899,6 +932,7 @@ function sortArrow(k){return sortCol===k?('<span class="ar">'+(sortDir>0?'▲':'
 
 /* ===== Map: aggregated, expandable floating force-graph + modes ===== */
 let mapMode=(function(){try{return localStorage.getItem('ns_mapmode')||'graph';}catch(_){return 'graph';}})();
+let mapLabel=(function(){try{return localStorage.getItem('ns_maplabel')||'name';}catch(_){return 'name';}})();
 let _sim=null, _mapList=[], expanded=new Set();
 
 const RISKY={23:'Telnet',2323:'Telnet',3389:'RDP',445:'SMB',139:'NetBIOS',21:'FTP',
@@ -941,6 +975,7 @@ function groupOrder(keys){
 }
 function syncMapBar(){document.querySelectorAll('#view-map .mapbar button').forEach(b=>b.classList.toggle('active',b.dataset.m===mapMode));}
 function setMapMode(m){mapMode=m;expanded=new Set();syncMapBar();try{localStorage.setItem('ns_mapmode',m);}catch(_){}renderTopo();}
+function setMapLabel(v){mapLabel=v;try{localStorage.setItem('ns_maplabel',v);}catch(_){}renderTopo();}
 function toggleGroup(key){ if(expanded.has(key))expanded.delete(key); else expanded.add(key); startGraph(_mapList); }
 function stopSim(){
   if(_sim){
@@ -952,6 +987,7 @@ function stopSim(){
 }
 function renderTopo(){
   syncMapBar();
+  const _ml=document.getElementById('maplabel'); if(_ml)_ml.value=mapLabel;
   const list=visible(); _mapList=list;
   if(mapMode==='ipgrid'){ stopSim(); return renderIPGrid(list); }
   return startGraph(list);
@@ -1119,9 +1155,10 @@ function renderIPGrid(list){
     const r=Math.floor(o/cols), c=o%cols, x=pad+c*(cell+gap), y=pad+top+r*(cell+gap), d=byOct[o];
     if(d){
       const col=typeColor(d.device_type), stroke=d.is_self?'#49d8f2':(d.is_gateway?'#ecb24a':'#0b1019'), sw=(d.is_self||d.is_gateway)?2.5:1;
+      let gl=nodeField(d,mapLabel)||(''+o); if(gl.length>8)gl=gl.slice(0,8)+'…'; const gfs=gl.length>5?9:13;
       s+='<g class="tnode" style="cursor:pointer" onclick="focusCard(\''+esc(d.ip)+'\')" onmousemove="showTip(event,\''+esc(d.ip)+'\')" onmouseleave="hideTip()">'+
         '<rect x="'+x+'" y="'+y+'" width="'+cell+'" height="'+cell+'" rx="8" fill="'+col+'" fill-opacity="'+(d.new?'0.95':'0.78')+'" stroke="'+stroke+'" stroke-width="'+sw+'"/>'+
-        '<text x="'+(x+cell/2)+'" y="'+(y+cell/2+4)+'" text-anchor="middle" style="fill:#06121c;font-size:13px;font-weight:600">'+o+'</text></g>';
+        '<text x="'+(x+cell/2)+'" y="'+(y+cell/2+4)+'" text-anchor="middle" style="fill:#06121c;font-size:'+gfs+'px;font-weight:600">'+esc(gl)+'</text></g>';
     }else{
       s+='<rect x="'+x+'" y="'+y+'" width="'+cell+'" height="'+cell+'" rx="8" fill="#111a2b" stroke="#16233a"/>'+
         '<text x="'+(x+cell/2)+'" y="'+(y+cell/2+4)+'" text-anchor="middle" style="fill:#2f3c52;font-size:10px">'+o+'</text>';
