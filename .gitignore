@@ -58,6 +58,13 @@ build/
 dist/
 *.spec
 
+# ── Native packaging artifacts (produced in CI; packaging/ source stays tracked)
+*.AppImage
+*.deb
+AppDir/
+debroot/
+appimagetool
+
 # ── Logs / temp / scratch ────────────────────────────────────────────────────
 *.log
 *.tmp

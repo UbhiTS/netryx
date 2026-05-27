@@ -47,7 +47,28 @@ SUBPROC_KW = {"creationflags": 0x08000000} if IS_WINDOWS else {}  # CREATE_NO_WI
 
 APP_DIR = os.path.dirname(os.path.abspath(
     sys.argv[0] if getattr(sys, "frozen", False) else __file__))
-DATA_DIR = os.environ.get("NETRYX_DATA") or os.path.join(APP_DIR, "netryx_data")
+
+
+def _default_data_dir():
+    """Where scan history, names, baseline, tokens etc. live.
+    NETRYX_DATA always wins. Running from source: beside the script. As an
+    installed/frozen binary (which may sit in a read-only /usr/bin, /Applications
+    or Program Files): under the user's profile, per-OS convention."""
+    env = os.environ.get("NETRYX_DATA")
+    if env:
+        return env
+    if not getattr(sys, "frozen", False):
+        return os.path.join(APP_DIR, "netryx_data")
+    if IS_WINDOWS:
+        base = os.environ.get("APPDATA") or os.path.expanduser("~")
+    elif sys.platform == "darwin":
+        base = os.path.expanduser("~/Library/Application Support")
+    else:
+        base = os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share")
+    return os.path.join(base, "Netryx")
+
+
+DATA_DIR = _default_data_dir()
 HISTORY_DIR = os.path.join(DATA_DIR, "history")
 DEVICES_FILE = os.path.join(DATA_DIR, "devices.json")
 SEEN_FILE = os.path.join(DATA_DIR, "seen_macs.json")
@@ -272,7 +293,11 @@ def default_gateway():
 def ping(host, timeout_ms=700):
     if IS_WINDOWS:
         cmd = ["ping", "-n", "1", "-w", str(timeout_ms), host]
+    elif sys.platform == "darwin":
+        # BSD/macOS ping: -W is the per-reply timeout in MILLISECONDS.
+        cmd = ["ping", "-c", "1", "-W", str(max(1, int(timeout_ms))), host]
     else:
+        # Linux iputils ping: -W is in SECONDS.
         cmd = ["ping", "-c", "1", "-W", str(max(1, int(round(timeout_ms / 1000.0)))), host]
     try:
         out = subprocess.run(cmd, capture_output=True, text=True,

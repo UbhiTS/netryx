@@ -58,12 +58,29 @@ python netryx.py --host 0.0.0.0 # listen on all interfaces (use with care)
 python netryx.py --scan 192.168.1.0/24 --json   # one-shot scan, no server
 ```
 
-## Option B — standalone Windows .exe (no Python on the target PC)
+## Option B — prebuilt single-file app (no Python needed)
 
-Run **`build.bat`** once on a Windows machine with Python. It uses PyInstaller to
-produce `dist\Netryx.exe` — a single file (the UI **and** the MCP server are
-bundled inside) you can copy to any Windows PC and double-click. (A Windows
-`.exe` must be built on Windows.)
+Every release ships self-contained binaries (UI **and** MCP server bundled in)
+on the [Releases page](../../releases/latest) — grab the one for your OS:
+
+| Platform | Asset | Run it |
+|---|---|---|
+| **Windows** | `Netryx.exe` | double-click (unsigned → SmartScreen *More info → Run anyway*) |
+| **macOS** (Intel) | `netryx-macos-x86_64.tar.gz` | `tar -xzf … && xattr -dr com.apple.quarantine netryx && ./netryx` |
+| **macOS** (Apple Silicon) | `netryx-macos-arm64.tar.gz` | same as above |
+| **Linux** (any distro) | `Netryx-<ver>-x86_64.AppImage` | `chmod +x …AppImage && ./…AppImage` |
+| **Linux** (Ubuntu/Debian) | `netryx_<ver>_amd64.deb` | `sudo apt install ./netryx_*_amd64.deb` then run `netryx` |
+| **Linux** (portable) | `netryx-linux-x86_64.tar.gz` | `tar -xzf … && ./netryx` |
+
+The binaries are unsigned. macOS Gatekeeper needs the quarantine flag cleared
+(the `xattr` above) or a right-click → **Open** the first time; for fully
+frictionless launch you'd need Apple notarization. Data is stored per-user
+(`%APPDATA%\Netryx`, `~/Library/Application Support/Netryx`,
+`~/.local/share/Netryx`); set `NETRYX_DATA` to override.
+
+To build the Windows `.exe` yourself, run **`build.bat`** on a Windows box with
+Python (PyInstaller can't cross-compile, which is why each OS is built on its
+own runner in CI).
 
 ## Option C — Docker on your NAS / server
 

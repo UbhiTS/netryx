@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Netryx
+GenericName=Network Scanner
+Comment=Local network scanner & discovery dashboard
+Exec=netryx
+Icon=netryx
+Terminal=true
+Categories=Network;System;Monitor;Security;
+Keywords=network;scan;discovery;devices;lan;
