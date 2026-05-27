@@ -70,10 +70,22 @@ bundled inside) you can copy to any Windows PC and double-click. (A Windows
 The app is container-ready. From this folder:
 
 ```
+mkdir -p netryx-data
+sudo chown -R 10001:10001 netryx-data   # see "data directory ownership" below
 docker compose up -d --build
 ```
 
 Then open **`http://<your-NAS-IP>:8765`** from any browser on your network.
+
+> **⚠ First-run data directory ownership.** The container runs as a non-root
+> user (**uid 10001**) for safety. The bind-mounted `./netryx-data` folder must
+> therefore be writable by that uid, so chown it once (as shown above). If you
+> skip this, the app still starts and the dashboard loads, but **nothing
+> persists** — saving the baseline, approving/clearing it, creating API tokens,
+> renaming devices, and live-connection / MCP subscriber tracking all silently
+> do nothing (the startup log prints a `data directory … is NOT writable`
+> warning). Prefer not to chown? Run the container as root instead by setting
+> `user: "0:0"` in `docker-compose.yml`.
 
 **Host networking is required.** A bridged container sits on its own virtual
 network and cannot see your real LAN — no device discovery, no ARP, no mDNS/SNMP.
@@ -91,13 +103,16 @@ ping and the TTL-based OS guess. (`NET_ADMIN` is not needed.)
   won't allow host mode, the app will still load but device discovery will be
   limited to the container's own network.
 - Data (scan history, device names/notes, the downloaded vendor DB, baseline and
-  events) persists in `./netryx-data` on the host via the mounted volume.
+  events) persists in `./netryx-data` on the host via the mounted volume. That
+  folder must be owned by uid **10001** (the container user) — see the ownership
+  note above.
 - Change the port with the `NETRYX_PORT` env var if 8765 is taken.
 
 Plain `docker` equivalent:
 
 ```
 docker build -t netryx .
+mkdir -p netryx-data && sudo chown -R 10001:10001 netryx-data
 docker run -d --name netryx --network host \
   --cap-add NET_RAW \
   -e NETRYX_PORT=8765 -v "$PWD/netryx-data:/data" \
@@ -393,11 +408,16 @@ This repo ships a GitHub Actions workflow (`.github/workflows/build.yml`) that r
 - **Docker image** → built and pushed to the GitHub Container Registry (GHCR) as `ghcr.io/<owner>/netryx:latest` (and a `:<commit-sha>` tag). Pull and run it on your NAS with:
 
   ```
+  mkdir -p netryx-data && sudo chown -R 10001:10001 netryx-data
   docker run -d --name netryx --network host \
     --cap-add NET_RAW \
     -v "$PWD/netryx-data:/data" --restart unless-stopped \
     ghcr.io/<owner>/netryx:latest
   ```
+
+  The container runs as uid **10001**, so the `netryx-data` volume must be
+  writable by that uid (the `chown` above) — otherwise nothing persists. See
+  "data directory ownership" under Option C.
 
 - **Standalone Windows .exe** → built with PyInstaller on a Windows runner and uploaded as a build **artifact** on every run. Pushing a version tag (e.g. `git tag v1.0.0 && git push --tags`) also publishes the `.exe` on a GitHub **Release**.
 
