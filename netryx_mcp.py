@@ -342,16 +342,20 @@ def tool_snmp_walk(args):
 
 def tool_name_device(args):
     mac = (args.get("mac") or "").strip().lower()
-    if not mac:
-        raise ValueError("provide 'mac'")
-    ok = engine.save_device_meta(mac, args.get("name"), args.get("notes"))
+    ip = (args.get("ip") or "").strip()
+    # Identity is the MAC when known, else the IP — devices on another subnet
+    # (behind a router) have no resolvable MAC.
+    key = mac or ip
+    if not key:
+        raise ValueError("provide 'mac' or 'ip'")
+    ok = engine.save_device_meta(key, args.get("name"), args.get("notes"))
     for d in engine.LAST_RESULTS.get("devices", []):
-        if (d.get("mac") or "").lower() == mac:
+        if (d.get("mac") or d.get("ip")) == key:
             if args.get("name") is not None:
                 d["name"] = args.get("name")
             if args.get("notes") is not None:
                 d["notes"] = args.get("notes")
-    return {"ok": bool(ok), "mac": mac}
+    return {"ok": bool(ok), "key": key}
 
 
 def tool_scan_history(args):
@@ -533,15 +537,15 @@ TOOLS = [
     },
     {
         "name": "name_device",
-        "description": "Save a custom name and/or notes for a device (keyed by MAC). Persists across scans.",
+        "description": "Save a custom name and/or notes for a device. Keyed by MAC when known, otherwise by IP (devices on another subnet, behind a router, have no resolvable MAC). Provide at least one of mac/ip. Persists across scans.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "mac": {"type": "string", "description": "Device MAC address."},
+                "mac": {"type": "string", "description": "Device MAC address (preferred identity)."},
+                "ip": {"type": "string", "description": "Device IP (used as identity when no MAC)."},
                 "name": {"type": "string", "description": "Friendly name to assign."},
                 "notes": {"type": "string", "description": "Free-form notes."},
             },
-            "required": ["mac"],
         },
         "_fn": tool_name_device,
     },

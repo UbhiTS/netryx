@@ -1385,16 +1385,20 @@ def load_devices_meta():
     return _load_json(DEVICES_FILE, {})
 
 
-def save_device_meta(mac, name, notes):
-    if not mac:
+def save_device_meta(key, name, notes):
+    """Store a device's friendly name / notes. ``key`` is the MAC when we have
+    one, otherwise the IP — devices on another subnet (behind a router) have no
+    resolvable MAC, so we fall back to the IP as a stable-enough identity. MACs
+    (colons) and IPs (dots) never collide as keys."""
+    if not key:
         return False
     meta = load_devices_meta()
-    entry = meta.get(mac, {})
+    entry = meta.get(key, {})
     if name is not None:
         entry["name"] = name
     if notes is not None:
         entry["notes"] = notes
-    meta[mac] = entry
+    meta[key] = entry
     return _save_json(DEVICES_FILE, meta)
 
 
@@ -2447,7 +2451,7 @@ def _run_discovery_inner(job, subnet, scan_ports=False, port_profile="quick",
         d["is_gateway"] = bool(gw and ip == gw)
         d["is_self"] = (ip == self_ip)
         d["is_dns"] = (ip in dnssrv)
-        m = meta.get(mac) if mac else None
+        m = meta.get(mac or ip)   # MAC when we have one, else the IP fallback key
         d["name"] = (m or {}).get("name")
         d["notes"] = (m or {}).get("notes")
         md = mdns_map.get(ip)
@@ -2786,12 +2790,16 @@ def openapi_spec():
                 "requestBody": {"required": True, "content": {"application/json": {"schema": {
                     "type": "object", "required": ["mac"], "properties": {"mac": {"type": "string"}}}}}},
                 "responses": {"200": ok, "400": {"description": "bad mac"}}}},
-            "/api/device": {"post": {"tags": ["devices"], "summary": "Set a device name/notes (by MAC)",
+            "/api/device": {"post": {"tags": ["devices"],
+                "summary": "Set a device name/notes (by MAC, or by IP when there's no MAC)",
+                "description": "Identity is the MAC when one is known, otherwise the IP. Devices on another subnet (behind a router) have no resolvable MAC, so pass the IP. Send at least one of mac/ip.",
                 "requestBody": {"required": True, "content": {"application/json": {"schema": {
-                    "type": "object", "required": ["mac"], "properties": {
-                        "mac": {"type": "string"}, "name": {"type": "string"},
+                    "type": "object", "properties": {
+                        "mac": {"type": "string", "description": "Device MAC (preferred identity)"},
+                        "ip": {"type": "string", "description": "Device IP (used as identity when no MAC)"},
+                        "name": {"type": "string"},
                         "notes": {"type": "string"}}}}}},
-                "responses": {"200": ok, "400": {"description": "mac required"}}}},
+                "responses": {"200": ok, "400": {"description": "mac or ip required"}}}},
             "/api/baseline": {
                 "get": {"tags": ["security"], "summary": "Get the known-good baseline + live diff",
                         "responses": {"200": ok}},
@@ -3333,11 +3341,15 @@ class Handler(BaseHTTPRequestHandler):
                 "note": None if res else "no response (host unreachable, SNMP disabled, or wrong community)"})
         if path == "/api/device":
             mac = (data.get("mac") or "").strip().lower()
-            if not mac:
-                return self._send(400, {"error": "mac required"})
-            ok = save_device_meta(mac, data.get("name"), data.get("notes"))
+            ip = (data.get("ip") or "").strip()
+            # Identity is the MAC when we have one, else the IP — devices on
+            # another subnet (behind a router) have no resolvable MAC.
+            key = mac or ip
+            if not key:
+                return self._send(400, {"error": "mac or ip required"})
+            ok = save_device_meta(key, data.get("name"), data.get("notes"))
             for d in LAST_RESULTS.get("devices", []):
-                if d.get("mac") == mac:
+                if (d.get("mac") or d.get("ip")) == key:
                     if data.get("name") is not None:
                         d["name"] = data.get("name")
                     if data.get("notes") is not None:

@@ -1255,10 +1255,11 @@ async function saveCardEdit(){
   if(!d){editingIp=null; render(); return;}
   const name=(document.getElementById('ce-name')||{}).value||'';
   const notes=(document.getElementById('ce-notes')||{}).value||'';
-  if(!d.mac){toast('Cannot save without a MAC address','red'); editingIp=null; render(); return;}
   try{
+    // Devices on another subnet (behind a router) have no resolvable MAC, so we
+    // key on IP instead. Send both; the server uses MAC when present, else IP.
     await api('/api/device',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({mac:d.mac,name,notes})});
+      body:JSON.stringify({mac:d.mac||'',ip:d.ip,name,notes})});
     d.name=name; d.notes=notes; editingIp=null; lastKey=''; render(); toast('Saved','green');
   }catch(e){toast('Save failed: '+e.message,'red');}
 }

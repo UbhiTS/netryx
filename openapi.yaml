@@ -283,18 +283,21 @@ paths:
     post:
       tags:
       - "devices"
-      summary: "Set a device name/notes (by MAC)"
+      summary: "Set a device name/notes (by MAC, or by IP when there's no MAC)"
+      description: "Identity is the MAC when one is known, otherwise the IP. Devices on another subnet (behind a router) have no resolvable MAC, so pass the IP. Send at least one of mac/ip."
       requestBody:
         required: true
         content:
           "application/json":
             schema:
               type: "object"
-              required:
-              - "mac"
               properties:
                 mac:
                   type: "string"
+                  description: "Device MAC (preferred identity)"
+                ip:
+                  type: "string"
+                  description: "Device IP (used as identity when no MAC)"
                 name:
                   type: "string"
                 notes:
@@ -303,7 +306,7 @@ paths:
         "200":
           description: "OK"
         "400":
-          description: "mac required"
+          description: "mac or ip required"
   "/api/baseline":
     get:
       tags:
