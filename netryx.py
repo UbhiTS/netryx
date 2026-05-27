@@ -2084,14 +2084,19 @@ def login_page():
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Netryx - Sign in</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHZpZXdCb3g9JzAgMCAzMiAzMic+PHJlY3Qgd2lkdGg9JzMyJyBoZWlnaHQ9JzMyJyByeD0nNycgZmlsbD0nIzBkMTExNycvPjxjaXJjbGUgY3g9JzE2JyBjeT0nMTYnIHI9JzExJyBmaWxsPSdub25lJyBzdHJva2U9JyMzMDM2M2QnIHN0cm9rZS13aWR0aD0nMicvPjxjaXJjbGUgY3g9JzE2JyBjeT0nMTYnIHI9JzcnIGZpbGw9J25vbmUnIHN0cm9rZT0nIzFmNmZlYicgc3Ryb2tlLXdpZHRoPScyJy8+PGNpcmNsZSBjeD0nMTYnIGN5PScxNicgcj0nMycgZmlsbD0nIzU4YTZmZicvPjwvc3ZnPg==">
+<script>(function(){try{var t=localStorage.getItem('ns_theme');if(t!=='light'&&t!=='dark'&&t!=='medium')t=(window.matchMedia&&matchMedia('(prefers-color-scheme: light)').matches)?'light':'dark';document.documentElement.setAttribute('data-theme',t);}catch(_){document.documentElement.setAttribute('data-theme','dark');}})();</script>
 <style>
+/* Dark dimmed (default). The early <script> applies the saved ns_theme so the login page
+   matches whatever the user last chose in the app (dark / medium / light). */
 :root{--bg:#22272e;--panel:#2d333b;--border:#444c56;--text:#adbac7;--muted:#768390;--cyan:#539bf5;--blue:#316dca;--red:#e5534b;
-  --primary:#347d39;--primary-hi:#46954a}
-@media (prefers-color-scheme: light){
-  :root{--bg:#ffffff;--panel:#f6f8fa;--border:#d0d7de;--text:#1f2328;--muted:#656d76;--cyan:#0969da;--blue:#0969da;--red:#cf222e;
-    --primary:#1f883d;--primary-hi:#1a7f37}
-  input{background:#ffffff}
-}
+  --primary:#347d39;--primary-hi:#46954a;--inbg:#1c2128}
+html[data-theme="light"]{--bg:#ffffff;--panel:#f6f8fa;--border:#d0d7de;--text:#1f2328;--muted:#656d76;--cyan:#0969da;--blue:#0969da;--red:#cf222e;
+  --primary:#1f883d;--primary-hi:#1a7f37;--inbg:#ffffff}
+html[data-theme="medium"]{--bg:#d4dbe3;--panel:#e2e7ed;--border:#b0bac5;--text:#1c2128;--muted:#4a5560;--cyan:#0a5cc0;--blue:#0a5cc0;--red:#cf222e;
+  --primary:#1f883d;--primary-hi:#1a7f37;--inbg:#eaeef2}
+/* No-JS fallback: honour OS preference only when no theme has been chosen yet */
+@media (prefers-color-scheme: light){html:not([data-theme]){--bg:#ffffff;--panel:#f6f8fa;--border:#d0d7de;--text:#1f2328;--muted:#656d76;--cyan:#0969da;--blue:#0969da;--red:#cf222e;
+  --primary:#1f883d;--primary-hi:#1a7f37;--inbg:#ffffff}}
 *{box-sizing:border-box}
 body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
   font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color:var(--text);
@@ -2105,7 +2110,7 @@ body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:c
 .brand .tag{font-size:10.5px;letter-spacing:3px;text-transform:uppercase;color:var(--muted);font-family:ui-monospace,monospace}
 .brand .tagline{font-size:9px;letter-spacing:1.4px;text-transform:uppercase;color:var(--muted);opacity:.6;font-family:ui-monospace,monospace}
 label{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin:14px 0 6px}
-input{width:100%;background:#1c2128;border:1px solid var(--border);color:var(--text);
+input{width:100%;background:var(--inbg);border:1px solid var(--border);color:var(--text);
   border-radius:6px;padding:11px 13px;font-size:14px;outline:none;transition:.15s}
 input:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(83,155,245,.4)}
 button{width:100%;margin-top:20px;border:1px solid rgba(205,217,229,.1);border-radius:6px;padding:12px;font-size:14px;font-weight:500;
