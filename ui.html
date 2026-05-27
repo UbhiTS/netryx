@@ -13,14 +13,14 @@
   --shadow:0 18px 50px rgba(0,0,0,.45); --mono:ui-monospace,'SF Mono',SFMono-Regular,Menlo,Consolas,monospace;
   /* Interactive affordance — every clickable/editable control gets this amber tint
      so it stands apart from static panels and labels. */
-  --ix:#f4c44e;                          /* interactive accent (amber) */
-  --ix-strong:#e0a02e;                   /* deeper amber for solid/primary fills */
-  --ix-border:rgba(244,196,78,.50);      /* control borders */
-  --ix-border-hi:rgba(244,196,78,.95);   /* hover/focus border */
-  --ix-bg:rgba(244,196,78,.07);          /* resting tinted background */
-  --ix-bg-hi:rgba(244,196,78,.17);       /* hover tinted background */
-  --ix-glow:0 0 0 3px rgba(244,196,78,.16);          /* focus ring */
-  --ix-glow-soft:0 0 12px rgba(244,196,78,.28);      /* hover glow */
+  --ix:#cda455;                          /* interactive accent (muted gold) */
+  --ix-strong:#dcb869;                   /* gold text / emphasis on dark */
+  --ix-border:rgba(205,164,85,.38);      /* resting control border */
+  --ix-border-hi:rgba(205,164,85,.80);   /* hover/focus border */
+  --ix-bg:rgba(205,164,85,.05);          /* barely-there resting tint */
+  --ix-bg-hi:rgba(205,164,85,.12);       /* hover tint */
+  --ix-glow:0 0 0 3px rgba(205,164,85,.14);          /* subtle focus ring (inputs) */
+  --ix-glow-soft:none;                                /* no hover glow — sober */
 }
 *{box-sizing:border-box}
 html,body{margin:0}
@@ -32,13 +32,13 @@ a:hover{text-decoration:underline}
 .mono{font-family:var(--mono)}
 ::selection{background:rgba(73,216,242,.25)}
 button{font-family:inherit;font-size:13px;cursor:pointer;border:1px solid var(--ix-border);
-  background:var(--ix-bg);color:var(--text);border-radius:9px;padding:8px 13px;transition:.15s;white-space:nowrap}
-button:hover{border-color:var(--ix-border-hi);color:#fff;background:var(--ix-bg-hi);box-shadow:var(--ix-glow-soft)}
+  background:var(--panel2);color:var(--text);border-radius:9px;padding:8px 13px;transition:.15s;white-space:nowrap}
+button:hover{border-color:var(--ix-border-hi);color:#fff;background:var(--ix-bg-hi)}
 button:focus-visible{outline:none;border-color:var(--ix-border-hi);box-shadow:var(--ix-glow)}
 button:disabled{opacity:.4;cursor:not-allowed;background:var(--panel2);border-color:var(--border);box-shadow:none}
-button.primary{background:linear-gradient(135deg,var(--ix),var(--ix-strong));border:none;color:#1a1205;font-weight:700;box-shadow:0 0 14px rgba(244,196,78,.32)}
-button.primary:hover{filter:brightness(1.07);color:#1a1205;box-shadow:0 0 18px rgba(244,196,78,.45)}
-button.ghost{background:var(--ix-bg)}
+button.primary{background:var(--panel2);border:1px solid var(--ix-border-hi);color:var(--ix-strong);font-weight:700}
+button.primary:hover{background:var(--ix-bg-hi);color:var(--ix-strong)}
+button.ghost{background:var(--panel2)}
 button.sm{padding:6px 10px;font-size:12px}
 input[type=text],input[type=password],select,textarea{font-family:inherit;font-size:13px;background:var(--bg2);
   border:1px solid var(--ix-border);color:var(--text);border-radius:9px;padding:9px 11px;outline:none;transition:.15s}
@@ -66,7 +66,7 @@ header{position:sticky;top:0;z-index:30;backdrop-filter:blur(10px);
   padding-top:11px;border-top:1px dashed var(--border)}
 .ouibox{display:flex;align-items:center;gap:9px;margin-left:auto;font-size:12px;color:var(--muted)}
 .histbtn{margin-left:auto}
-.histbtn.active{background:linear-gradient(135deg,var(--ix),var(--ix-strong));border:none;color:#1a1205;font-weight:700}
+.histbtn.active{background:var(--ix-bg-hi);border:1px solid var(--ix-border-hi);color:var(--ix-strong);font-weight:700}
 .dotled{width:7px;height:7px;border-radius:50%;background:var(--faint);box-shadow:0 0 7px currentColor}
 .dotled.on{background:var(--green);color:var(--green)}
 .bar{height:6px;border-radius:6px;background:var(--panel2);overflow:hidden;margin:13px 0 5px}
@@ -93,8 +93,8 @@ main{max-width:1560px;margin:0 auto;padding:18px 22px 70px}
 .seg{display:inline-flex;background:var(--panel2);border:1px solid var(--ix-border);border-radius:10px;padding:3px}
 .seg button{border:none;background:transparent;border-radius:7px;padding:7px 14px;color:#aebfd6;font-weight:600;transition:.12s;box-shadow:none}
 .seg button:hover{background:var(--ix-bg-hi);color:#fff;box-shadow:none}
-.seg button.active{background:linear-gradient(135deg,var(--ix),var(--ix-strong));color:#1a1205}
-.seg button.active:hover{background:linear-gradient(135deg,var(--ix),var(--ix-strong));color:#1a1205}
+.seg button.active{background:var(--ix-bg-hi);color:var(--ix-strong)}
+.seg button.active:hover{background:var(--ix-bg-hi);color:var(--ix-strong)}
 .viewbar .spacer{flex:1}
 .tool{display:flex;gap:9px;align-items:center;flex-wrap:wrap}
 .tool input[type=text]{min-width:230px}
@@ -138,7 +138,7 @@ table.dev th{position:sticky;top:0;background:var(--panel2);color:var(--muted);f
   font-size:11px;text-transform:uppercase;letter-spacing:.8px;cursor:pointer;z-index:2;transition:.12s}
 table.dev th:hover{color:var(--ix);background:#211c0e;text-decoration:underline;text-underline-offset:4px}
 table.dev tbody tr{cursor:pointer}
-table.dev tbody tr:hover{background:rgba(244,196,78,.10)}
+table.dev tbody tr:hover{background:rgba(205,164,85,.09)}
 table.dev tbody tr:hover td:first-child{box-shadow:inset 3px 0 0 var(--ix)}
 table.dev td.mono{font-family:var(--mono)}
 table.dev .pill{font-family:var(--mono);font-size:11px;background:var(--panel2);border:1px solid var(--border);
@@ -216,7 +216,7 @@ textarea.ceinput{min-height:58px;resize:vertical}
 /* baseline / events / security panel */
 .rightgrp{margin-left:auto;display:flex;gap:8px;align-items:center}
 .viewnav{display:flex;gap:8px;align-items:center}
-.navbtn.active{background:linear-gradient(135deg,var(--ix),var(--ix-strong));border:none;color:#1a1205;font-weight:700}
+.navbtn.active{background:var(--ix-bg-hi);border:1px solid var(--ix-border-hi);color:var(--ix-strong);font-weight:700}
 .blchip{display:inline-flex;align-items:center;gap:7px;font-size:11.5px;color:var(--muted);font-family:var(--mono);
   padding:6px 11px;border:1px solid var(--ix-border);border-radius:9px;background:var(--ix-bg);cursor:pointer;white-space:nowrap;transition:.15s}
 .blchip:hover{border-color:var(--ix-border-hi);background:var(--ix-bg-hi);box-shadow:var(--ix-glow-soft)}
