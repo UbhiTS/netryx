@@ -2083,6 +2083,7 @@ def login_page():
     return ("""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Netryx - Sign in</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHZpZXdCb3g9JzAgMCAzMiAzMic+PHJlY3Qgd2lkdGg9JzMyJyBoZWlnaHQ9JzMyJyByeD0nNycgZmlsbD0nIzBkMTExNycvPjxjaXJjbGUgY3g9JzE2JyBjeT0nMTYnIHI9JzExJyBmaWxsPSdub25lJyBzdHJva2U9JyMzMDM2M2QnIHN0cm9rZS13aWR0aD0nMicvPjxjaXJjbGUgY3g9JzE2JyBjeT0nMTYnIHI9JzcnIGZpbGw9J25vbmUnIHN0cm9rZT0nIzFmNmZlYicgc3Ryb2tlLXdpZHRoPScyJy8+PGNpcmNsZSBjeD0nMTYnIGN5PScxNicgcj0nMycgZmlsbD0nIzU4YTZmZicvPjwvc3ZnPg==">
 <style>
 :root{--bg:#0d1117;--panel:#161b22;--border:#30363d;--text:#e6edf3;--muted:#7d8590;--cyan:#58a6ff;--blue:#1f6feb;--red:#f85149;
   --primary:#238636;--primary-hi:#2ea043}

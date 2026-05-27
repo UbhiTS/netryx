@@ -66,8 +66,7 @@ on the [Releases page](../../releases/latest) — grab the one for your OS:
 | Platform | Asset | Run it |
 |---|---|---|
 | **Windows** | `Netryx.exe` | double-click (unsigned → SmartScreen *More info → Run anyway*) |
-| **macOS** (Intel) | `netryx-macos-x86_64.tar.gz` | `tar -xzf … && xattr -dr com.apple.quarantine netryx && ./netryx` |
-| **macOS** (Apple Silicon) | `netryx-macos-arm64.tar.gz` | same as above |
+| **macOS** (Intel & Apple Silicon) | `netryx-macos-universal.tar.gz` | `tar -xzf … && xattr -dr com.apple.quarantine netryx && ./netryx` |
 | **Linux** (any distro) | `Netryx-<ver>-x86_64.AppImage` | `chmod +x …AppImage && ./…AppImage` |
 | **Linux** (Ubuntu/Debian) | `netryx_<ver>_amd64.deb` | `sudo apt install ./netryx_*_amd64.deb` then run `netryx` |
 | **Linux** (portable) | `netryx-linux-x86_64.tar.gz` | `tar -xzf … && ./netryx` |

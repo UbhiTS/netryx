@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Netryx — Signal Cartography</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHZpZXdCb3g9JzAgMCAzMiAzMic+PHJlY3Qgd2lkdGg9JzMyJyBoZWlnaHQ9JzMyJyByeD0nNycgZmlsbD0nIzBkMTExNycvPjxjaXJjbGUgY3g9JzE2JyBjeT0nMTYnIHI9JzExJyBmaWxsPSdub25lJyBzdHJva2U9JyMzMDM2M2QnIHN0cm9rZS13aWR0aD0nMicvPjxjaXJjbGUgY3g9JzE2JyBjeT0nMTYnIHI9JzcnIGZpbGw9J25vbmUnIHN0cm9rZT0nIzFmNmZlYicgc3Ryb2tlLXdpZHRoPScyJy8+PGNpcmNsZSBjeD0nMTYnIGN5PScxNicgcj0nMycgZmlsbD0nIzU4YTZmZicvPjwvc3ZnPg==">
 <style>
 :root{
   /* GitHub Primer dark palette */
@@ -1212,7 +1213,8 @@ function renderIPGrid(list){
   const cols=16, cell=54, gap=8, pad=18, top=(bases.length>1?34:0);
   const W=pad*2+cols*(cell+gap)-gap, rows=16, H=pad*2+top+rows*(cell+gap)-gap+10;
   let s='<svg viewBox="0 0 '+W+' '+H+'" xmlns="http://www.w3.org/2000/svg">';
-  if(bases.length>1) s+='<text x="'+pad+'" y="'+(pad+8)+'" onclick="setGridSubnet(null)" style="cursor:pointer;fill:#58a6ff;font-size:13px;font-family:ui-monospace,monospace">‹ All subnets</text>';
+  if(bases.length>1) s+='<text x="'+pad+'" y="'+(pad+8)+'" onclick="setGridSubnet(null)" style="cursor:pointer;fill:#58a6ff;font-size:13px;font-family:ui-monospace,monospace">‹ All subnets</text>'+
+    '<text x="'+(W-pad)+'" y="'+(pad+8)+'" text-anchor="end" style="fill:#7d8590;font-size:13px;font-family:ui-monospace,monospace">'+esc(base+'.0/24')+'</text>';
   for(let o=0;o<256;o++){
     const r=Math.floor(o/cols), c=o%cols, x=pad+c*(cell+gap), y=pad+top+r*(cell+gap), d=byOct[o];
     if(d){

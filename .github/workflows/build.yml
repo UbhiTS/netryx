@@ -138,34 +138,36 @@ jobs:
           if-no-files-found: error
 
   macos-exe:
-    name: macOS binary (${{ matrix.arch }})
-    runs-on: ${{ matrix.runner }}
+    name: macOS binary (universal2)
+    # Build ONE universal2 binary on the Apple-Silicon runner — it runs natively
+    # on both Intel and Apple Silicon. Avoids the scarce Intel (macos-13) runner
+    # pool, which can sit unscheduled for hours.
+    runs-on: macos-14
     needs: [version]
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - { runner: macos-13, arch: x86_64 }   # Intel
-          - { runner: macos-14, arch: arm64 }    # Apple Silicon
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - name: Install PyInstaller
-        run: pip install pyinstaller
-      - name: Build binary
-        run: pyinstaller --onefile --name netryx --console --add-data "ui.html:." --add-data "openapi.yaml:." --hidden-import netryx_mcp --hidden-import netryx netryx.py
+      - name: Install universal2 Python (python.org)
+        run: |
+          curl -fsSL -o python.pkg https://www.python.org/ftp/python/3.12.7/python-3.12.7-macos11.pkg
+          sudo installer -pkg python.pkg -target /
+      - name: Build universal2 binary
+        run: |
+          PY=/Library/Frameworks/Python.framework/Versions/3.12/bin/python3
+          "$PY" -m pip install --upgrade pip pyinstaller
+          "$PY" -m PyInstaller --onefile --target-arch universal2 --name netryx --console \
+            --add-data "ui.html:." --add-data "openapi.yaml:." \
+            --hidden-import netryx_mcp --hidden-import netryx netryx.py
       - name: Package tarball
         run: |
           cd dist
           chmod +x netryx
-          tar -czf "netryx-macos-${{ matrix.arch }}.tar.gz" netryx
+          lipo -info netryx || file netryx || true   # expect: x86_64 arm64
+          tar -czf netryx-macos-universal.tar.gz netryx
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: netryx-macos-${{ matrix.arch }}
-          path: dist/netryx-macos-${{ matrix.arch }}.tar.gz
+          name: netryx-macos-universal
+          path: dist/netryx-macos-universal.tar.gz
           if-no-files-found: error
 
   linux-build:
@@ -260,10 +262,10 @@ jobs:
             echo "### Windows"
             echo "Download **Netryx.exe** (unsigned — SmartScreen may warn on first run; choose *More info → Run anyway*)."
             echo ""
-            echo "### macOS"
-            echo "Intel: **netryx-macos-x86_64.tar.gz** · Apple Silicon: **netryx-macos-arm64.tar.gz**. Unzip, then:"
+            echo "### macOS (universal — Intel & Apple Silicon)"
+            echo "Download **netryx-macos-universal.tar.gz**, then:"
             echo '```'
-            echo "tar -xzf netryx-macos-<arch>.tar.gz && xattr -dr com.apple.quarantine netryx && ./netryx"
+            echo "tar -xzf netryx-macos-universal.tar.gz && xattr -dr com.apple.quarantine netryx && ./netryx"
             echo '```'
             echo "(Unsigned, so Gatekeeper requires clearing quarantine or right-click → Open the first time.)"
             echo ""
@@ -281,8 +283,7 @@ jobs:
           name: Netryx ${{ needs.version.outputs.tag }}
           files: |
             dist/Netryx.exe
-            dist/netryx-macos-x86_64.tar.gz
-            dist/netryx-macos-arm64.tar.gz
+            dist/netryx-macos-universal.tar.gz
             dist/netryx-linux-x86_64.tar.gz
             dist/netryx_*_amd64.deb
             dist/Netryx-*-x86_64.AppImage
