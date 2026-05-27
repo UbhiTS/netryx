@@ -600,9 +600,24 @@ async function deleteTokenUI(id){
   }catch(e){toast('Could not delete token: '+e.message,'red');}
 }
 function copyText(txt){
-  if(navigator.clipboard&&navigator.clipboard.writeText){
-    navigator.clipboard.writeText(txt).then(()=>toast('Copied to clipboard','green')).catch(()=>toast('Copy failed — select it manually','amber'));
-  }else{toast('Copy not available — select the value manually','amber');}
+  const ok=()=>toast('Copied to clipboard','green');
+  const fail=()=>toast('Copy failed — select the value and press Ctrl+C','amber');
+  function legacy(){
+    try{
+      const ta=document.createElement('textarea');
+      ta.value=txt; ta.setAttribute('readonly','');
+      ta.style.position='fixed'; ta.style.top='-1000px'; ta.style.opacity='0';
+      document.body.appendChild(ta); ta.focus(); ta.select();
+      const done=document.execCommand('copy');
+      document.body.removeChild(ta);
+      done?ok():fail();
+    }catch(e){ fail(); }
+  }
+  // navigator.clipboard only exists in a secure context (HTTPS or localhost);
+  // on plain-HTTP LAN access it's undefined, so fall back to execCommand.
+  if(navigator.clipboard&&navigator.clipboard.writeText&&window.isSecureContext){
+    navigator.clipboard.writeText(txt).then(ok).catch(legacy);
+  }else{ legacy(); }
 }
 
 async function startScan(){
