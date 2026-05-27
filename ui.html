@@ -157,7 +157,8 @@ main{max-width:1560px;margin:0 auto;padding:18px 22px 70px}
 
 .tablewrap{overflow:auto;border:1px solid var(--border);border-radius:13px;background:var(--panel)}
 table.dev{width:100%;border-collapse:collapse;font-size:13px}
-table.dev th,table.dev td{padding:10px 12px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap}
+table.dev th,table.dev td{padding:10px 12px;text-align:left;border-bottom:1px solid var(--line);white-space:normal;vertical-align:top}
+table.dev td.mono,table.dev th{white-space:nowrap}
 table.dev th{position:sticky;top:0;background:var(--panel2);color:var(--muted);font-weight:600;
   font-size:11px;text-transform:uppercase;letter-spacing:.8px;cursor:pointer;z-index:2;transition:.12s}
 table.dev th:hover{color:var(--cyan);background:var(--panel);text-decoration:underline;text-underline-offset:4px}
@@ -168,6 +169,7 @@ table.dev td.mono{font-family:var(--mono)}
 table.dev .pill{font-family:var(--mono);font-size:11px;background:var(--panel2);border:1px solid var(--border);
   border-radius:6px;padding:1px 6px;margin:1px 2px 1px 0;display:inline-block}
 table.dev .pill.web{background:rgba(83,155,245,.1);border-color:rgba(83,155,245,.4)}
+table.dev td .pillwrap{display:flex;flex-wrap:wrap;align-items:center}
 
 .mapbar{padding:11px 0;border-bottom:1px solid var(--border);margin-bottom:16px}
 #topo{position:relative;border:1px solid var(--border);border-radius:14px;overflow:hidden;
@@ -993,7 +995,7 @@ function renderTable(){
     '<td>'+esc(d.vendor||'')+'</td>'+
     '<td class="mono" style="font-size:11px">'+esc(d.mac||'')+'</td>'+
     '<td>'+esc(d.os||'')+'</td>'+
-    '<td>'+((d.ports||[]).map(p=>{const rp=(_bf.ports&&_bf.ports.has(p.port))?' rogueport':'';return p.url?'<a class="pill web'+(p.new?' fresh':'')+rp+'" href="'+esc(p.url)+'" target="_blank" rel="noopener" onclick="event.stopPropagation()">'+p.port+'↗</a>':'<span class="pill'+(p.new?' fresh':'')+rp+'">'+p.port+'</span>';}).join('')||'<span class="hint">—</span>')+'</td>'+
+    '<td><div class="pillwrap">'+((d.ports||[]).map(p=>{const rp=(_bf.ports&&_bf.ports.has(p.port))?' rogueport':'';return p.url?'<a class="pill web'+(p.new?' fresh':'')+rp+'" href="'+esc(p.url)+'" target="_blank" rel="noopener" onclick="event.stopPropagation()">'+p.port+'↗</a>':'<span class="pill'+(p.new?' fresh':'')+rp+'">'+p.port+'</span>';}).join('')||'<span class="hint">—</span>')+'</div></td>'+
     '</tr>';}).join('');
   document.getElementById('tbl').innerHTML=head+'<tbody>'+rows+(full.length>CAP?'<tr><td colspan="7" class="hint">Showing '+CAP+' of '+full.length+' rows \u2014 narrow with search / filter</td></tr>':'')+'</tbody>';
 }
