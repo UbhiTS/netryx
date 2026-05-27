@@ -103,7 +103,7 @@ main{max-width:1560px;margin:0 auto;padding:18px 22px 70px}
 .card{position:relative;background:linear-gradient(180deg,var(--panel),var(--bg2));
   border:1px solid var(--border);border-radius:15px;padding:15px 16px;overflow:hidden;
   contain:content;transition:border-color .15s,transform .15s}
-.card:hover{border-color:#2b3c5c;transform:translateY(-2px)}
+.card:hover{border-color:#2b3c5c}
 .card.isnew{border-color:rgba(70,214,160,.55);box-shadow:0 0 0 1px rgba(70,214,160,.25)}
 .card .glowedge{position:absolute;inset:0 auto 0 0;width:3px;background:var(--accent,var(--cyan));opacity:.85}
 .card .top{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
@@ -208,7 +208,7 @@ th .ar{color:var(--ix);font-size:10px}
 button.stop{background:linear-gradient(135deg,#f0716b,#d64545)!important;border:none!important;color:#fff!important;font-weight:700}
 .card.flash{animation:cardflash 1.6s ease-out}
 @keyframes cardflash{0%{box-shadow:0 0 0 2px var(--cyan),0 0 26px rgba(73,216,242,.5)}100%{box-shadow:none}}
-.card.target{border-color:var(--accent,var(--cyan))!important;animation:targetpulse 1s ease-in-out 3}
+.card.target{border-color:var(--accent,var(--cyan))!important;animation:targetpulse 1s ease-in-out 4}
 @keyframes targetpulse{
   0%,100%{box-shadow:0 0 0 2px var(--accent,var(--cyan)),0 0 16px var(--accent,var(--cyan))}
   50%{box-shadow:0 0 0 3px var(--accent,var(--cyan)),0 0 30px var(--accent,var(--cyan)),0 0 60px var(--accent,var(--cyan))}}
@@ -1322,7 +1322,7 @@ function focusCard(ip){
     el.classList.add('target');
     el.style.animation='none'; void el.offsetWidth; el.style.animation='';   // restart the pulse
     clearTimeout(window._spotT);
-    window._spotT=setTimeout(()=>{ el.classList.remove('target'); }, 3200);  // 3 pulses ≈ 3s
+    window._spotT=setTimeout(()=>{ el.classList.remove('target'); }, 4200);  // 4 pulses ≈ 4s
   },90);
 }
 async function exportData(fmt){
