@@ -228,6 +228,8 @@ textarea.ceinput{min-height:58px;resize:vertical}
 .bigstat .x span{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-top:3px}
 .tier-critical{color:#ff6a60}.tier-high{color:#f0716b}.tier-medium{color:#ecb24a}.tier-low{color:#9d8cff}.tier-none{color:var(--muted)}
 .evfeed .kind{font-family:var(--mono);font-size:10.5px;padding:2px 9px;border-radius:20px;border:1px solid var(--border)}
+.livedot{font-size:11px;font-family:var(--mono);margin-left:10px;font-weight:500}
+.livedot.on{color:var(--green)} .livedot.off{color:var(--muted)}
 .evfeed .kind.rogue_device{background:rgba(240,113,107,.16);color:#ff9a93;border-color:rgba(240,113,107,.5)}
 .evfeed .kind.new_open_port{background:rgba(236,178,74,.16);color:#f0c674;border-color:rgba(236,178,74,.45)}
 .secwarn{margin:0 0 14px;padding:11px 15px;border:1px solid rgba(236,178,74,.5);border-radius:11px;
@@ -423,7 +425,7 @@ let scanning=false;
 let etaKey='', etaSamples=[];
 let baseline=null, ROGUE=new Set(), DRIFT=new Map();
 let appInfo=null;
-let liveMaxId=0, evtSrc=null;   // live event stream (SSE) state
+let liveMaxId=0, evtSrc=null, liveConnected=false;   // live event stream (SSE) state
 
 const TYPE_META={
   "Router / Gateway":{c:"#ecb24a"},"Network device":{c:"#ecb24a"},
@@ -1328,8 +1330,14 @@ async function startEventStream(){
     if(evtSrc)evtSrc.close();
     evtSrc=new EventSource('/api/events/stream?since='+since);
     evtSrc.onmessage=onLiveEvent;
-    evtSrc.onerror=function(){};   // EventSource auto-reconnects
+    evtSrc.onopen=function(){liveConnected=true; updateLiveDot();};
+    evtSrc.onerror=function(){liveConnected=false; updateLiveDot();};   // EventSource auto-reconnects
   }catch(_){}
+}
+function updateLiveDot(){
+  const el=document.getElementById('livedot'); if(!el)return;
+  el.className='livedot '+(liveConnected?'on':'off');
+  el.textContent=liveConnected?'● live':'● offline';
 }
 async function renderEvents(){
   const body=document.getElementById('events-body');
@@ -1382,7 +1390,7 @@ async function renderEvents(){
   }else{
     feed='<tr><td colspan="3" class="hint">No events yet'+(has?'':' — set a baseline to start detecting changes')+'.</td></tr>';
   }
-  html+='<div class="seccard evfeed"><h3>Event log</h3><div class="sub">Unexpected devices and ports detected over time, newest first.</div><div class="tablewrap"><table class="dev"><thead><tr><th>When</th><th>Type</th><th>Detail</th></tr></thead><tbody>'+feed+'</tbody></table></div></div>';
+  html+='<div class="seccard evfeed"><h3>Event log <span id="livedot" class="livedot '+(liveConnected?'on':'off')+'">'+(liveConnected?'● live':'● offline')+'</span></h3><div class="sub">Unexpected devices and ports detected over time, newest first.</div><div class="tablewrap"><table class="dev"><thead><tr><th>When</th><th>Type</th><th>Detail</th></tr></thead><tbody>'+feed+'</tbody></table></div></div>';
   body.innerHTML=html;
 }
 async function renderSettings(){

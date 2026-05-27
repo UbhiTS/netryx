@@ -353,6 +353,42 @@ paths:
       responses:
         "200":
           description: "OK"
+  "/api/events/poll":
+    get:
+      tags:
+      - "security"
+      summary: "Long-poll for events newer than 'since' (blocks up to 'timeout's)"
+      parameters:
+      - name: "since"
+        in: "query"
+        schema:
+          type: "integer"
+          default: 0
+        description: "Return events with id greater than this"
+      - name: "timeout"
+        in: "query"
+        schema:
+          type: "integer"
+          default: 25
+        description: "Seconds to block waiting for a new event (1-60)"
+      responses:
+        "200":
+          description: "OK"
+  "/api/events/stream":
+    get:
+      tags:
+      - "security"
+      summary: "Server-Sent Events stream of live events (text/event-stream)"
+      parameters:
+      - name: "since"
+        in: "query"
+        schema:
+          type: "integer"
+          default: 0
+        description: "Replay events after this id before streaming live"
+      responses:
+        "200":
+          description: "text/event-stream of event frames"
   "/api/tokens":
     get:
       tags:
