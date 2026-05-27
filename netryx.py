@@ -1406,11 +1406,14 @@ def _save_json(path, data):
                 os.fsync(f.fileno())
             os.replace(tmp, path)
         return True
-    except Exception:
+    except Exception as e:
         try:
             os.remove(tmp)
         except Exception:
             pass
+        # Don't fail silently — a non-writable data dir is the usual cause and
+        # otherwise looks like "the UI/API did nothing".
+        log("WARNING: could not write %s (%s) — is the data directory writable?" % (path, e))
         return False
 
 
@@ -3322,8 +3325,8 @@ class Handler(BaseHTTPRequestHandler):
             if not _stream_acquire():
                 return self._send(503, {"error": "too many concurrent connections"})
             sid = "poll-" + secrets.token_hex(3)
-            sub_register(sid, transport="long-poll", caller=self._caller_label(), ip=self._client_ip())
             try:
+                sub_register(sid, transport="long-poll", caller=self._caller_label(), ip=self._client_ip())
                 EVENT_HUB.wait(since, timeout)
             finally:
                 sub_remove(sid)
@@ -3336,18 +3339,22 @@ class Handler(BaseHTTPRequestHandler):
             last = int(sv) if str(sv).isdigit() else 0
             if not _stream_acquire():
                 return self._send(503, {"error": "too many concurrent connections"})
-            self.send_response(200)
-            self.send_header("Content-Type", "text/event-stream; charset=utf-8")
-            self.send_header("Cache-Control", "no-store")
-            self.send_header("Connection", "keep-alive")
-            self.send_header("X-Content-Type-Options", "nosniff")
-            self.send_header("X-Accel-Buffering", "no")   # don't let nginx buffer SSE
-            self.end_headers()
+            # Everything after acquire is inside try/finally so the stream slot is
+            # ALWAYS released — even if send_response/headers raise on a client that
+            # vanished mid-handshake (otherwise the slot leaks and we hit the cap).
             sid = "sse-" + secrets.token_hex(4)
-            who = self._caller_label()
-            sub_register(sid, transport="sse", caller=who, ip=self._client_ip())
-            audit("subscribe", transport="sse", caller=who, ip=self._client_ip(), sid=sid)
+            who = "?"
             try:
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("Connection", "keep-alive")
+                self.send_header("X-Content-Type-Options", "nosniff")
+                self.send_header("X-Accel-Buffering", "no")   # don't let nginx buffer SSE
+                self.end_headers()
+                who = self._caller_label()
+                sub_register(sid, transport="sse", caller=who, ip=self._client_ip())
+                audit("subscribe", transport="sse", caller=who, ip=self._client_ip(), sid=sid)
                 self.wfile.write(b": connected\n\n")
                 for e in events_since(last):
                     self.wfile.write(_sse_frame(e))
@@ -3624,6 +3631,20 @@ def main():
         else:
             _print_scan_table(res)
         return 0
+
+    # Fail loudly if the data directory isn't writable — otherwise saves (baseline,
+    # tokens, device names, subscriber/live tracking) silently no-op and the UI
+    # just "does nothing". Common cause: a non-root container on a root-owned volume.
+    _probe = os.path.join(DATA_DIR, ".write_test")
+    try:
+        with open(_probe, "w") as _pf:
+            _pf.write("ok")
+        os.remove(_probe)
+    except Exception as _e:
+        log("FATAL-ish: data directory %s is NOT writable (%s). Baseline, tokens, "
+            "device names and live-connection tracking will not persist. Fix the "
+            "volume permissions (e.g. chown to the container's uid) or run as root."
+            % (DATA_DIR, _e))
 
     _restore_last_results()
     threading.Thread(target=_scheduler_loop, daemon=True).start()
