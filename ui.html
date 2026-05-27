@@ -246,6 +246,11 @@ textarea.ceinput{min-height:58px;resize:vertical}
 .tokform{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:14px}
 .tokform input[type=text],.tokform input[type=password]{background:var(--bg2);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 10px;font-size:13px}
 .tokform input.days{width:150px}
+.schedrow{display:flex;align-items:center;gap:12px;margin:4px 0}
+.schedlbl{color:var(--muted);font-size:13px;min-width:42px}
+.schedopts{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-top:12px}
+#sched-slider{accent-color:var(--cyan);height:4px;cursor:pointer}
+.schedopts select,#sched-targets,#sched-profile,#sched-workers{background:var(--bg2);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:7px 9px;font-size:13px}
 .snip{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:10px 12px;
   font-family:var(--mono);font-size:11.5px;color:#bcd0ee;white-space:pre-wrap;word-break:break-all;margin-top:6px}
 </style>
@@ -1450,6 +1455,8 @@ async function renderSettings(){
   const auth=(info&&info.auth)||{};
   let toks=[];
   try{const tr=await api('/api/tokens');toks=tr.tokens||[];}catch(_){}
+  let sched={};
+  try{sched=await api('/api/schedule');}catch(_){}
   const mcpUrl=(location.origin||'')+'/mcp';
   let html='';
   html+='<div class="seccard"><h3>Access control</h3>'+
@@ -1467,6 +1474,38 @@ async function renderSettings(){
      '<input type="password" id="adm-cur" placeholder="current password" autocomplete="off">'+
      '<input type="password" id="adm-new" placeholder="new password" autocomplete="off">'+
      '<button class="sm primary" onclick="changeCreds()">Update login</button></div></div>';
+  // ---- Scheduled scans (server-side; own isolated config, separate from the
+  //      manual scan bar and the browser "Live monitor") ----
+  const sIval=Number(sched.interval||3600);
+  const sIdx=schedNearest(sIval);
+  const sSubPH=esc((info&&info.subnet)||'192.168.1.0/24');
+  const sStatus=sched.enabled
+    ? ('Enabled · runs every '+schedFmt(SCHED_STEPS[sIdx])+' · last run '+(sched.last_run?relTime(sched.last_run):'never')+' · next '+fmtWhen(sched.next_run)+(sched.running?' · a scan is running now':''))
+    : 'Disabled — Netryx only scans on a manual or API/MCP trigger.';
+  html+='<div class="seccard"><h3>Scheduled scans</h3>'+
+    '<div class="sub">Run discovery automatically on the server, even with no browser open — so the baseline stays current and agents subscribed over MCP/SSE keep getting events. This has its <b>own</b> targets and options, independent of the scan bar and the browser <span class="mono">Live monitor</span>. Only one scan ever runs at a time: if a scan is already in flight when the timer fires, that tick is skipped until it finishes.</div>'+
+    '<label class="chk" style="margin:4px 0 12px"><input type="checkbox" id="sched-enabled"'+(sched.enabled?' checked':'')+'> Enable scheduled scans</label>'+
+    '<div class="schedrow"><span class="schedlbl">Every</span>'+
+      '<input type="range" id="sched-slider" min="0" max="'+(SCHED_STEPS.length-1)+'" step="1" value="'+sIdx+'" oninput="schedSliderLabel()" style="flex:1;min-width:160px">'+
+      '<b id="sched-ival-label" class="mono" style="min-width:64px;text-align:right">'+schedFmt(SCHED_STEPS[sIdx])+'</b></div>'+
+    '<div class="schedrow" style="color:var(--muted);font-size:11px;justify-content:space-between"><span>1 min</span><span>30 days</span></div>'+
+    '<div class="tokform" style="margin-top:10px"><input type="text" id="sched-targets" placeholder="Targets — blank uses '+sSubPH+'" value="'+esc(sched.targets||'')+'" size="34"></div>'+
+    '<div class="schedopts">'+
+      '<label class="chk" title="Also probe ports during the scheduled scan"><input type="checkbox" id="sched-ports"'+(sched.scan_ports?' checked':'')+'> Scan ports</label>'+
+      '<select id="sched-profile" title="Port-scan depth">'+
+        '<option value="quick"'+(sched.port_profile==='quick'?' selected':'')+'>Quick · ~90 ports</option>'+
+        '<option value="extended"'+(sched.port_profile==='extended'?' selected':'')+'>Extended · 1–1024</option>'+
+        '<option value="full"'+(sched.port_profile==='full'?' selected':'')+'>Full · 1–65535</option>'+
+      '</select>'+
+      '<label class="chk"><input type="checkbox" id="sched-mdns"'+(sched.use_mdns!==false?' checked':'')+'> mDNS</label>'+
+      '<label class="chk"><input type="checkbox" id="sched-snmp"'+(sched.use_snmp!==false?' checked':'')+'> SNMP</label>'+
+      '<span class="wsel">Workers <select id="sched-workers">'+
+        ['auto','128','256','500','800','1000'].map(w=>'<option value="'+w+'"'+(String(sched.workers||'auto')===w?' selected':'')+'>'+(w==='auto'?'Auto':w)+'</option>').join('')+
+      '</select></span>'+
+    '</div>'+
+    '<div class="tokform" style="margin-top:12px"><button class="sm primary" onclick="saveSchedule()">Save schedule</button>'+
+      '<span id="sched-status" class="hint" style="align-self:center">'+esc(sStatus)+'</span></div>'+
+  '</div>';
   let trows='';
   if(toks.length){
     trows=toks.map(t=>'<div class="tokrow"><div class="tokmeta"><div class="nm">'+esc(t.name||'token')+'</div>'+
@@ -1523,6 +1562,36 @@ function changeCreds(){
   api('/api/credentials',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:u,current_password:cur,password:np})})
     .then(()=>{toast('Admin login updated.','green');document.getElementById('adm-cur').value='';document.getElementById('adm-new').value='';loadInfo();renderSettings();})
     .catch(e=>toast((''+e.message).indexOf('403')>=0?'Current password is incorrect':'Could not update: '+e.message,'red'));
+}
+// ---- scheduled scans (settings card) ----
+const SCHED_STEPS=[60,120,300,600,900,1800,3600,7200,21600,43200,86400,172800,604800,1209600,2592000];
+function schedFmt(sec){
+  if(sec<3600){return (sec/60)+' min';}
+  if(sec<86400){const h=sec/3600;return h+' hour'+(h>1?'s':'');}
+  const d=sec/86400;return d+' day'+(d>1?'s':'');
+}
+function schedNearest(sec){let bi=6,bd=Infinity;for(let i=0;i<SCHED_STEPS.length;i++){const d=Math.abs(SCHED_STEPS[i]-sec);if(d<bd){bd=d;bi=i;}}return bi;}
+function schedSliderLabel(){const el=document.getElementById('sched-slider');if(!el)return;document.getElementById('sched-ival-label').textContent=schedFmt(SCHED_STEPS[+el.value]);}
+function fmtWhen(ts){if(!ts)return '—';const s=Math.floor(ts-Date.now()/1000);if(s<=0)return 'due now';if(s<60)return 'in '+s+'s';const m=Math.floor(s/60);if(m<60)return 'in '+m+' min';const h=Math.floor(m/60);if(h<24)return 'in '+h+'h';return 'in '+Math.floor(h/24)+'d';}
+function saveSchedule(){
+  const idx=+(document.getElementById('sched-slider').value||6);
+  const payload={
+    enabled:document.getElementById('sched-enabled').checked,
+    interval:SCHED_STEPS[idx],
+    targets:(document.getElementById('sched-targets').value||'').trim(),
+    scan_ports:document.getElementById('sched-ports').checked,
+    port_profile:document.getElementById('sched-profile').value,
+    use_mdns:document.getElementById('sched-mdns').checked,
+    use_snmp:document.getElementById('sched-snmp').checked,
+    workers:document.getElementById('sched-workers').value
+  };
+  api('/api/schedule',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)})
+    .then(r=>{
+      toast(r.enabled?('Scheduled scans on — every '+schedFmt(r.interval)):'Scheduled scans off','green');
+      const st=document.getElementById('sched-status');
+      if(st)st.textContent=r.enabled?('Enabled · runs every '+schedFmt(r.interval)+' · next '+fmtWhen(r.next_run)):'Disabled — Netryx only scans on a manual or API/MCP trigger.';
+    })
+    .catch(e=>toast('Could not save schedule: '+e.message,'red'));
 }
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&editingIp)cancelCardEdit();});
 window.addEventListener('resize',()=>{if(view==='map')renderTopo();});

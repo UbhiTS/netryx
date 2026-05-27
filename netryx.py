@@ -2074,6 +2074,65 @@ JOBS = {}
 JOBS_LOCK = threading.Lock()
 JOB_COUNTER = 0
 LAST_RESULTS = {"subnet": None, "devices": []}
+SCAN_LOCK = threading.Lock()          # guarantees only one discovery scan runs at a time
+
+
+def discovery_running():
+    """Return the currently-running discovery job, if any (else None)."""
+    for j in list(JOBS.values()):
+        if j.get("type") == "discovery" and j.get("status") == "running":
+            return j
+    return None
+
+
+# ---- scheduled scans (server-side; runs even with no browser open) ----
+SCHEDULE_FILE = os.path.join(DATA_DIR, "schedule.json")
+SCHEDULE_MIN = 60               # 1 minute
+SCHEDULE_MAX = 2592000          # 30 days
+_LAST_SCHED_RUN = 0.0
+
+
+def load_schedule():
+    s = _load_json(SCHEDULE_FILE, {}) or {}
+    try:
+        interval = max(SCHEDULE_MIN, min(SCHEDULE_MAX, int(s.get("interval", 3600))))
+    except Exception:
+        interval = 3600
+    return {"enabled": bool(s.get("enabled")), "interval": interval,
+            "targets": s.get("targets") or "", "scan_ports": bool(s.get("scan_ports", False)),
+            "port_profile": s.get("port_profile", "quick"), "use_mdns": bool(s.get("use_mdns", True)),
+            "use_snmp": bool(s.get("use_snmp", True)), "workers": s.get("workers", "auto"),
+            "last_run": s.get("last_run")}
+
+
+def save_schedule(patch):
+    cur = load_schedule()
+    cur.update(patch or {})
+    try:
+        cur["interval"] = max(SCHEDULE_MIN, min(SCHEDULE_MAX, int(cur.get("interval", 3600))))
+    except Exception:
+        cur["interval"] = 3600
+    _save_json(SCHEDULE_FILE, cur)
+    return cur
+
+
+def _scheduler_loop():
+    global _LAST_SCHED_RUN
+    _LAST_SCHED_RUN = time.time()       # wait one full interval before the first scheduled run
+    while True:
+        try:
+            s = load_schedule()
+            if s.get("enabled") and (time.time() - _LAST_SCHED_RUN) >= s["interval"] \
+                    and not discovery_running():
+                targets = (s.get("targets") or "").strip() or default_subnet()
+                _LAST_SCHED_RUN = time.time()
+                save_schedule({"last_run": _LAST_SCHED_RUN})
+                start_job("discovery", run_discovery, targets, s.get("scan_ports", False),
+                          s.get("port_profile", "quick"), s.get("use_mdns", True),
+                          s.get("use_snmp", True), s.get("workers", "auto"))
+        except Exception:
+            pass
+        time.sleep(10)
 
 
 def _restore_last_results():
@@ -2259,6 +2318,31 @@ def _finalize(job, alive, subnet, cancelled):
 
 def run_discovery(job, subnet, scan_ports=False, port_profile="quick",
                   use_mdns=True, use_snmp=True, req_workers="auto"):
+    """Single-scan gate: only one discovery scan runs at a time. If a scan is
+    already in flight (manual, live-monitor or scheduled), this job is skipped
+    rather than run in parallel — it keeps the last results and returns."""
+    if not SCAN_LOCK.acquire(blocking=False):
+        other = next((j for j in list(JOBS.values())
+                      if j.get("type") == "discovery" and j.get("status") == "running"
+                      and j.get("id") != job.get("id")), None)
+        job["status"] = "done"
+        job["phase"] = "Skipped — a scan is already running"
+        job["note"] = "skipped: a scan was already running" + (
+            " (job %s)" % other["id"] if other and other.get("id") else "")
+        job["skipped"] = True
+        job["devices"] = list(LAST_RESULTS.get("devices", []))
+        job["total"] = len(job["devices"])
+        job["done"] = job["total"]
+        return
+    try:
+        _run_discovery_inner(job, subnet, scan_ports, port_profile,
+                             use_mdns, use_snmp, req_workers)
+    finally:
+        SCAN_LOCK.release()
+
+
+def _run_discovery_inner(job, subnet, scan_ports=False, port_profile="quick",
+                         use_mdns=True, use_snmp=True, req_workers="auto"):
     hosts, host_idx, targets, errors = parse_targets(subnet)
     if not hosts:
         job["status"] = "error"
@@ -2742,6 +2826,26 @@ def openapi_spec():
             "/api/mcp/subscribers": {"get": {"tags": ["security"],
                 "summary": "Live MCP/SSE/long-poll subscribers (with active flag)",
                 "responses": {"200": ok}}},
+            "/api/schedule": {
+                "get": {"tags": ["discovery"],
+                    "summary": "Get the server-side scan schedule (with next_run / running state)",
+                    "responses": {"200": ok}},
+                "post": {"tags": ["discovery"],
+                    "summary": "Update the server-side scan schedule",
+                    "description": "Scheduled scans run on the server even with no browser open. They use this endpoint's own targets/options (independent of the live monitor), and only one scan runs at a time — a tick is skipped if a scan is already running.",
+                    "requestBody": {"required": True, "content": {"application/json": {"schema": {
+                        "type": "object", "properties": {
+                            "enabled": {"type": "boolean"},
+                            "interval": {"type": "integer",
+                                         "description": "Seconds between scans (clamped 60 .. 2592000)"},
+                            "targets": {"type": "string",
+                                        "description": "CIDR/IP/range list; blank uses the suggested subnet"},
+                            "scan_ports": {"type": "boolean"},
+                            "port_profile": {"type": "string", "enum": ["quick", "extended", "full"]},
+                            "use_mdns": {"type": "boolean"},
+                            "use_snmp": {"type": "boolean"},
+                            "workers": {"type": "string"}}}}}},
+                    "responses": {"200": ok}}},
             "/api/tokens": {
                 "get": {"tags": ["security"], "summary": "List API tokens (values are viewable)",
                         "responses": {"200": ok}},
@@ -3056,6 +3160,18 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, {"audit": list_audit(alim)})
         if path == "/api/mcp/subscribers":
             return self._send(200, {"subscribers": list_subscribers()})
+        if path == "/api/schedule":
+            s = load_schedule()
+            running = discovery_running()
+            if s.get("enabled"):
+                base = s.get("last_run") or _LAST_SCHED_RUN or time.time()
+                s["next_run"] = base + s["interval"]
+            else:
+                s["next_run"] = None
+            s["running"] = bool(running)
+            s["min"] = SCHEDULE_MIN
+            s["max"] = SCHEDULE_MAX
+            return self._send(200, s)
         if path == "/api/events/poll":
             try:
                 since = int((qs.get("since") or ["0"])[0])
@@ -3152,6 +3268,13 @@ class Handler(BaseHTTPRequestHandler):
             subnet = (data.get("subnet") or "").strip()
             if not subnet:
                 return self._send(400, {"error": "subnet required"})
+            # Only one discovery scan runs at a time. If one is already in flight
+            # (manual, live-monitor or scheduled), attach to it instead of
+            # spawning a parallel scan.
+            busy = discovery_running()
+            if busy:
+                return self._send(200, {"job_id": busy["id"], "busy": True,
+                                        "note": "a scan is already running"})
             profile = data.get("port_profile", "quick")
             if profile not in PORT_PROFILES:
                 profile = "quick"
@@ -3254,6 +3377,37 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(403, {"error": "current password incorrect"})
             a = set_admin(data.get("username") or cur_user, newpw)
             return self._send(200, {"ok": True, "username": a["username"]})
+        if path == "/api/schedule":
+            global _LAST_SCHED_RUN
+            patch = {}
+            if "enabled" in data:
+                patch["enabled"] = bool(data.get("enabled"))
+            if "interval" in data:
+                try:
+                    patch["interval"] = max(SCHEDULE_MIN, min(SCHEDULE_MAX, int(data["interval"])))
+                except Exception:
+                    pass
+            if "targets" in data:
+                patch["targets"] = (data.get("targets") or "").strip()
+            if "scan_ports" in data:
+                patch["scan_ports"] = bool(data.get("scan_ports"))
+            if "port_profile" in data:
+                pp = data.get("port_profile", "quick")
+                patch["port_profile"] = pp if pp in PORT_PROFILES else "quick"
+            if "use_mdns" in data:
+                patch["use_mdns"] = bool(data.get("use_mdns"))
+            if "use_snmp" in data:
+                patch["use_snmp"] = bool(data.get("use_snmp"))
+            if "workers" in data:
+                patch["workers"] = data.get("workers", "auto")
+            cur = save_schedule(patch)
+            # Restart the countdown so a fresh save/enable waits a full interval.
+            _LAST_SCHED_RUN = time.time()
+            if cur.get("enabled"):
+                cur["next_run"] = _LAST_SCHED_RUN + cur["interval"]
+            else:
+                cur["next_run"] = None
+            return self._send(200, {"ok": True, **cur})
         return self._send(404, {"error": "not found"})
 
 
@@ -3311,6 +3465,7 @@ def main():
         return 0
 
     _restore_last_results()
+    threading.Thread(target=_scheduler_loop, daemon=True).start()
     port = find_free_port(args.port, args.host)
     httpd = ThreadingHTTPServer((args.host, port), Handler)
     shown = "127.0.0.1" if args.host in ("0.0.0.0", "") else args.host

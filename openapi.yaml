@@ -412,6 +412,51 @@ paths:
       responses:
         "200":
           description: "OK"
+  "/api/schedule":
+    get:
+      tags:
+      - "discovery"
+      summary: "Get the server-side scan schedule (with next_run / running state)"
+      responses:
+        "200":
+          description: "OK"
+    post:
+      tags:
+      - "discovery"
+      summary: "Update the server-side scan schedule"
+      description: "Scheduled scans run on the server even with no browser open. They use this endpoint's own targets/options (independent of the browser Live monitor), and only one scan runs at a time - a tick is skipped if a scan is already running."
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              type: "object"
+              properties:
+                enabled:
+                  type: "boolean"
+                interval:
+                  type: "integer"
+                  description: "Seconds between scans (clamped 60 .. 2592000)"
+                targets:
+                  type: "string"
+                  description: "CIDR/IP/range list; blank uses the suggested subnet"
+                scan_ports:
+                  type: "boolean"
+                port_profile:
+                  type: "string"
+                  enum:
+                  - "quick"
+                  - "extended"
+                  - "full"
+                use_mdns:
+                  type: "boolean"
+                use_snmp:
+                  type: "boolean"
+                workers:
+                  type: "string"
+      responses:
+        "200":
+          description: "OK"
   "/api/tokens":
     get:
       tags:
