@@ -468,6 +468,7 @@ textarea.ceinput{min-height:58px;resize:vertical}
           <option value="ports">Open ports</option>
         </select>
       </span>
+      <button id="expandall" class="ghost sm" onclick="toggleExpandAll()" title="Expand or collapse every group">Expand all</button>
     </div>
     <div id="topo">
       <div class="tip" id="tip"></div>
@@ -1065,7 +1066,21 @@ function toggleMapKey(){const k=document.getElementById('mapkey');if(!k)return;
   try{localStorage.setItem('ns_mapkey',c?'1':'0');}catch(_){}}
 (function(){try{if(localStorage.getItem('ns_mapkey')==='1'){const k=document.getElementById('mapkey');if(k){k.classList.add('collapsed');const ch=document.getElementById('mapkey-chev');if(ch)ch.textContent='▸';}}}catch(_){}})();
 function setMapLabel(v){mapLabel=v;try{localStorage.setItem('ns_maplabel',v);}catch(_){}renderTopo();}
-function toggleGroup(key){ if(expanded.has(key))expanded.delete(key); else expanded.add(key); startGraph(_mapList); }
+function toggleGroup(key){ if(expanded.has(key))expanded.delete(key); else expanded.add(key); startGraph(_mapList); syncExpandBtn(); }
+function _groupKeys(){ return [...new Set((_mapList||[]).filter(d=>!d.is_gateway).map(d=>groupKey(d)))]; }
+function syncExpandBtn(){
+  const b=document.getElementById('expandall'); if(!b)return;
+  if(mapMode==='ipgrid'){ b.style.display='none'; return; }
+  b.style.display='';
+  const keys=_groupKeys();
+  b.textContent=(keys.length>0 && keys.every(k=>expanded.has(k)))?'Collapse all':'Expand all';
+}
+function toggleExpandAll(){
+  const keys=_groupKeys(); if(!keys.length)return;
+  if(keys.every(k=>expanded.has(k))) expanded=new Set();      // all open -> collapse all
+  else keys.forEach(k=>expanded.add(k));                       // otherwise -> expand all
+  startGraph(_mapList); syncExpandBtn();
+}
 function stopSim(){
   if(_sim){
     if(_sim.raf)cancelAnimationFrame(_sim.raf);
@@ -1079,6 +1094,7 @@ function renderTopo(){
   syncMapKey();
   const _ml=document.getElementById('maplabel'); if(_ml)_ml.value=mapLabel;
   const list=visible(); _mapList=list;
+  syncExpandBtn();
   if(mapMode==='ipgrid'){ stopSim(); return renderIPGrid(list); }
   return startGraph(list);
 }
