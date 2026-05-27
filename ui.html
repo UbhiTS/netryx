@@ -76,6 +76,9 @@ header{position:sticky;top:0;z-index:30;
 .brand{display:flex;align-items:center;gap:13px}
 .mark{width:40px;height:40px;flex:0 0 auto}
 .brand h1{font-size:17px;margin:0;font-weight:700;letter-spacing:3px}
+.brandlink{display:flex;align-items:center;gap:13px;cursor:pointer;border-radius:8px;outline:none}
+.brandlink:hover{opacity:.85}
+.brandlink:focus-visible{box-shadow:0 0 0 2px var(--ix-border-hi)}
 .brand .namerow{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
 .brand .tagsep{color:var(--faint);font-size:12px}
 .brand .tag{font-size:10.5px;color:var(--muted);letter-spacing:3px;text-transform:uppercase;font-family:var(--mono)}
@@ -318,6 +321,7 @@ textarea.ceinput{min-height:58px;resize:vertical}
 <header>
  <div class="hwrap">
   <div class="brand">
+   <div class="brandlink" onclick="setView('table')" onkeydown="if(event.key==='Enter')setView('table')" role="link" tabindex="0" title="Back to table view">
     <svg class="mark" viewBox="0 0 40 40" fill="none" aria-hidden="true">
       <circle cx="20" cy="20" r="18" stroke-width="1" style="stroke:var(--cyan);opacity:.45"/>
       <circle cx="20" cy="20" r="12" stroke-width="1" style="stroke:var(--cyan);opacity:.6"/>
@@ -333,6 +337,7 @@ textarea.ceinput{min-height:58px;resize:vertical}
     <div>
       <div class="namerow"><h1>NETRYX</h1><span class="tagsep">·</span><span class="tag">Network Intelligence</span><span class="tagline">› Discover · Monitor · Automate</span></div>
     </div>
+   </div>
     <div class="env" id="env">locating network…</div>
     <button id="themebtn" class="ghost sm" onclick="toggleTheme()" title="Toggle light / dark theme" aria-label="Toggle light or dark theme" style="margin-left:12px;padding:6px 8px;line-height:0;align-self:center">
       <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" style="display:block"><circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 1.5 A6.5 6.5 0 0 1 8 14.5 Z" fill="currentColor"/></svg>
