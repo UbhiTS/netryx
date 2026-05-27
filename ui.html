@@ -123,8 +123,11 @@ main{max-width:1560px;margin:0 auto;padding:18px 22px 70px}
 table.dev{width:100%;border-collapse:collapse;font-size:13px}
 table.dev th,table.dev td{padding:10px 12px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap}
 table.dev th{position:sticky;top:0;background:var(--panel2);color:var(--muted);font-weight:600;
-  font-size:11px;text-transform:uppercase;letter-spacing:.8px;cursor:pointer;z-index:2}
-table.dev tbody tr:hover{background:rgba(73,216,242,.05)}
+  font-size:11px;text-transform:uppercase;letter-spacing:.8px;cursor:pointer;z-index:2;transition:.12s}
+table.dev th:hover{color:var(--cyan);background:#172132;text-decoration:underline;text-underline-offset:4px}
+table.dev tbody tr{cursor:pointer}
+table.dev tbody tr:hover{background:rgba(73,216,242,.10)}
+table.dev tbody tr:hover td:first-child{box-shadow:inset 3px 0 0 var(--cyan)}
 table.dev td.mono{font-family:var(--mono)}
 table.dev .pill{font-family:var(--mono);font-size:11px;background:var(--panel2);border:1px solid var(--border);
   border-radius:6px;padding:1px 6px;margin:1px 2px 1px 0;display:inline-block}
