@@ -2,7 +2,7 @@
 """Netryx - a feature-rich local network scanner & discovery web app.
 
 Pure Python standard library only (no pip installs). Runs a small local web
-server and serves the Signal Cartography dashboard (ui.html) in your browser.
+server and serves the Network Intelligence dashboard (ui.html) in your browser.
 
 Features: ping-sweep + TCP-fallback host discovery, MAC/vendor (OUI) lookup
 with full-IEEE-database download, reverse-DNS + mDNS/Bonjour + SNMP enrichment,
@@ -2101,6 +2101,7 @@ body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:c
 .brand{display:flex;flex-direction:column;align-items:center;text-align:center;margin-bottom:22px}
 .brand h1{font-size:18px;letter-spacing:4px;margin:14px 0 2px;font-weight:700}
 .brand .tag{font-size:10.5px;letter-spacing:3px;text-transform:uppercase;color:var(--muted);font-family:ui-monospace,monospace}
+.brand .tagline{font-size:9px;letter-spacing:1.4px;text-transform:uppercase;color:var(--muted);opacity:.75;font-family:ui-monospace,monospace;margin-top:2px}
 label{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin:14px 0 6px}
 input{width:100%;background:#1c2128;border:1px solid var(--border);color:var(--text);
   border-radius:6px;padding:11px 13px;font-size:14px;outline:none;transition:.15s}
@@ -2120,7 +2121,7 @@ button:active{transform:translateY(1px)}
       <circle cx="20" cy="20" r="6" stroke="#49d8f2"/><circle cx="20" cy="20" r="3" fill="#ecb24a"/>
       <circle cx="32" cy="20" r="1.7" fill="#49d8f2"/><circle cx="14" cy="8" r="1.7" fill="#49d8f2"/>
       <circle cx="9" cy="27" r="1.7" fill="#3b82f6"/><circle cx="28" cy="31" r="1.7" fill="#49d8f2"/></svg>
-    <h1>NETRYX</h1><div class="tag">Signal Cartography</div>
+    <h1>NETRYX</h1><div class="tag">Network Intelligence</div><div class="tagline">Discover · Monitor · Automate</div>
   </div>
   <label for="u">Username</label>
   <input id="u" name="username" autocomplete="username" autofocus required>
@@ -3686,7 +3687,7 @@ def main():
     url = "http://%s:%d" % (shown, port)
 
     print("=" * 64)
-    print("  Netryx %s - Signal Cartography" % VERSION)
+    print("  Netryx %s - Network Intelligence" % VERSION)
     print("  Open:  " + url)
     print("  Data:  " + DATA_DIR)
     print("  Press Ctrl+C to stop.")
