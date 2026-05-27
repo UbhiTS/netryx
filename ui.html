@@ -198,6 +198,7 @@ textarea.ceinput{min-height:58px;resize:vertical}
 .targets .tg b{color:var(--cyan);font-weight:500}
 /* baseline / events / security panel */
 .rightgrp{margin-left:auto;display:flex;gap:8px;align-items:center}
+.viewnav{display:flex;gap:8px;align-items:center}
 .navbtn.active{background:linear-gradient(135deg,var(--cyan),var(--blue));border:none;color:#04121c;font-weight:700}
 .blchip{display:inline-flex;align-items:center;gap:7px;font-size:11.5px;color:var(--muted);font-family:var(--mono);
   padding:6px 11px;border:1px solid var(--border);border-radius:9px;background:var(--panel2);cursor:pointer;white-space:nowrap}
@@ -295,9 +296,6 @@ textarea.ceinput{min-height:58px;resize:vertical}
       </div>
       <div class="rightgrp">
         <span class="blchip" id="blchip" onclick="setView('events')" title="Known-good baseline status — click to manage"><span class="d" id="bldot"></span><span id="bltxt">Baseline: off</span></span>
-        <button id="v-events" class="ghost navbtn" onclick="setView('events')">Events<span class="evbadge" id="evbadge" style="display:none">0</span></button>
-        <button id="v-hist" class="ghost navbtn" onclick="setView('hist')">History</button>
-        <button id="v-settings" class="ghost navbtn" onclick="setView('settings')" title="Security &amp; settings">⚙ Settings</button>
         <button id="signout" class="ghost navbtn" style="display:none" onclick="signOut()">Sign out</button>
       </div>
     </div>
@@ -361,6 +359,11 @@ textarea.ceinput{min-height:58px;resize:vertical}
       </select>
       <button class="ghost sm" onclick="exportData('csv')">CSV</button>
       <button class="ghost sm" onclick="exportData('json')">JSON</button>
+    </div>
+    <div class="viewnav">
+      <button id="v-events" class="ghost navbtn" onclick="setView('events')">Events<span class="evbadge" id="evbadge" style="display:none">0</span></button>
+      <button id="v-hist" class="ghost navbtn" onclick="setView('hist')">History</button>
+      <button id="v-settings" class="ghost navbtn" onclick="setView('settings')" title="Security &amp; settings">⚙ Settings</button>
     </div>
   </div>
 
@@ -1222,11 +1225,12 @@ function notifyNew(n,np){
 
 function setView(v){
   view=v;lastKey='';
+  try{ if((location.hash||'').slice(1)!==v) location.hash=v; }catch(_){}
   ['cards','table','map','hist','events','settings'].forEach(x=>{
     document.getElementById('view-'+x).style.display=(x===v)?'block':'none';
     const btn=document.getElementById('v-'+x); if(btn)btn.classList.toggle('active',x===v);
   });
-  document.querySelector('.tool').style.visibility=(v==='hist'||v==='events'||v==='settings')?'hidden':'visible';
+  document.querySelector('.tool').style.display=(v==='hist'||v==='events'||v==='settings')?'none':'';
   if(v!=='map')stopSim();
   if(v==='hist')loadHistory();else if(v==='events')renderEvents();else if(v==='settings')renderSettings();else render();
 }
@@ -1353,6 +1357,14 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape'&&editingIp)cancelCar
 window.addEventListener('resize',()=>{if(view==='map')renderTopo();});
 loadInfo();
 loadBaseline(false);
+// Restore the view from the URL hash on load, and keep Back/Forward + refresh in sync.
+(function(){
+  const VALID=['table','cards','map','hist','events','settings'];
+  function fromHash(){ const h=(location.hash||'').replace(/^#/,''); return VALID.indexOf(h)>=0?h:'table'; }
+  const start=fromHash();
+  if(start!=='table') setView(start);
+  window.addEventListener('hashchange',function(){ const h=fromHash(); if(h!==view) setView(h); });
+})();
 </script>
 </body>
 </html>
