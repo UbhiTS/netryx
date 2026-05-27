@@ -2087,6 +2087,11 @@ def login_page():
 <style>
 :root{--bg:#22272e;--panel:#2d333b;--border:#444c56;--text:#adbac7;--muted:#768390;--cyan:#539bf5;--blue:#316dca;--red:#e5534b;
   --primary:#347d39;--primary-hi:#46954a}
+@media (prefers-color-scheme: light){
+  :root{--bg:#ffffff;--panel:#f6f8fa;--border:#d0d7de;--text:#1f2328;--muted:#656d76;--cyan:#0969da;--blue:#0969da;--red:#cf222e;
+    --primary:#1f883d;--primary-hi:#1a7f37}
+  input{background:#ffffff}
+}
 *{box-sizing:border-box}
 body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
   font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color:var(--text);

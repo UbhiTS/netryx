@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Netryx — Signal Cartography</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHZpZXdCb3g9JzAgMCAzMiAzMic+PHJlY3Qgd2lkdGg9JzMyJyBoZWlnaHQ9JzMyJyByeD0nNycgZmlsbD0nIzBkMTExNycvPjxjaXJjbGUgY3g9JzE2JyBjeT0nMTYnIHI9JzExJyBmaWxsPSdub25lJyBzdHJva2U9JyMzMDM2M2QnIHN0cm9rZS13aWR0aD0nMicvPjxjaXJjbGUgY3g9JzE2JyBjeT0nMTYnIHI9JzcnIGZpbGw9J25vbmUnIHN0cm9rZT0nIzFmNmZlYicgc3Ryb2tlLXdpZHRoPScyJy8+PGNpcmNsZSBjeD0nMTYnIGN5PScxNicgcj0nMycgZmlsbD0nIzU4YTZmZicvPjwvc3ZnPg==">
+<script>(function(){try{var t=localStorage.getItem('ns_theme');if(t!=='light'&&t!=='dark')t=(window.matchMedia&&matchMedia('(prefers-color-scheme: light)').matches)?'light':'dark';document.documentElement.setAttribute('data-theme',t);}catch(_){document.documentElement.setAttribute('data-theme','dark');}})();</script>
 <style>
 :root{
   /* GitHub Primer "dark dimmed" palette — softer/lighter than dark default */
@@ -24,6 +25,25 @@
   --ix-glow:0 0 0 3px rgba(83,155,245,.40);          /* blue focus ring */
   --ix-glow-soft:none;
 }
+/* GitHub Primer "light" — applied when data-theme=light (toggle / OS preference) */
+html[data-theme="light"]{
+  --bg:#ffffff; --bg2:#ffffff; --panel:#f6f8fa; --panel2:#eaeef2; --raise:#d8dee4;
+  --border:#d0d7de; --line:#d8dee4; --text:#1f2328; --muted:#656d76;
+  --faint:#818b98; --cyan:#0969da; --blue:#0969da; --amber:#9a6700; --warm:#bf8700;
+  --green:#1a7f37; --red:#cf222e; --violet:#8250df;
+  --shadow:0 8px 24px rgba(140,149,159,.2);
+  --primary:#1f883d; --primary-hi:#1a7f37;
+  --ix:#0969da; --ix-strong:#0550ae; --ix-border:#d0d7de; --ix-border-hi:#afb8c1;
+  --ix-bg:transparent; --ix-bg-hi:#eaeef2; --ix-glow:0 0 0 3px rgba(9,105,218,.3); --ix-glow-soft:none;
+}
+/* Light-mode fixes for the few chip/badge text colours hardcoded for dark */
+html[data-theme="light"] .chip,html[data-theme="light"] table.dev .pill,html[data-theme="light"] .srcbadge.src-cli{color:#57606a}
+html[data-theme="light"] .chip.web a,html[data-theme="light"] .badge.you{color:#0969da}
+html[data-theme="light"] .badge.chg,html[data-theme="light"] .chip.fresh,html[data-theme="light"] .pill.fresh{color:#1a7f37}
+html[data-theme="light"] .badge.rogue,html[data-theme="light"] .chip.rogueport,html[data-theme="light"] .evfeed .kind.rogue_device{color:#cf222e}
+html[data-theme="light"] .badge.drift,html[data-theme="light"] .evfeed .kind.new_open_port{color:#9a6700}
+html[data-theme="light"] .badge.dns,html[data-theme="light"] .svc .s{color:#8250df}
+html[data-theme="light"] .tier-critical{color:#cf222e}
 *{box-sizing:border-box}
 html,body{margin:0}
 body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
@@ -310,6 +330,9 @@ textarea.ceinput{min-height:58px;resize:vertical}
       <div class="tag">Signal Cartography</div>
     </div>
     <div class="env" id="env">locating network…</div>
+    <button id="themebtn" class="ghost sm" onclick="toggleTheme()" title="Toggle light / dark theme" aria-label="Toggle light or dark theme" style="margin-left:12px;padding:6px 8px;line-height:0;align-self:center">
+      <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" style="display:block"><circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 1.5 A6.5 6.5 0 0 1 8 14.5 Z" fill="currentColor"/></svg>
+    </button>
   </div>
  </div>
 </header>
@@ -1108,13 +1131,13 @@ function startGraph(list){
       return '<g class="tnode" id="n'+i+'" style="cursor:pointer">'+
         '<circle r="'+(n.r+6)+'" fill="'+n.color+'" opacity="'+(ex?0.22:0.10)+'"/>'+
         '<circle r="'+n.r+'" fill="'+n.color+'" fill-opacity="0.26" stroke="'+n.color+'" stroke-width="'+(ex?2.5:1.5)+'"'+(ex?' stroke-dasharray="5 3"':'')+'/>'+
-        '<text y="5" text-anchor="middle" style="fill:#eef4fb;font-size:'+(n.r>=24?17:14)+'px;font-weight:600">'+n.count+'</text>'+
+        '<text y="5" text-anchor="middle" style="fill:var(--text);font-size:'+(n.r>=24?17:14)+'px;font-weight:600">'+n.count+'</text>'+
         '<text class="tlabel" y="'+(n.r+16)+'" text-anchor="middle" style="fill:'+n.color+'">'+esc(n.label)+(ex?' ▾':' ▸')+'</text></g>';
     }
     const ring=n.ring==='new'?'<circle r="'+(n.r+6)+'" fill="#57ab5a" opacity="0.25"/>'
       :(n.ring==='chg'?'<circle r="'+(n.r+5)+'" fill="none" stroke="#c69026" stroke-width="2" stroke-dasharray="3 3"/>':'');
     return '<g class="tnode" id="n'+i+'" style="cursor:pointer">'+ring+
-      '<circle r="'+n.r+'" fill="'+n.color+'" stroke="#22272e" stroke-width="1.4"/>'+
+      '<circle r="'+n.r+'" fill="'+n.color+'" stroke-width="1.4" style="stroke:var(--bg)"/>'+
       '<text class="tlabel" y="'+(n.r+12)+'" text-anchor="middle">'+esc(leafLabel(n.d))+'</text></g>';
   }
 
@@ -1200,8 +1223,8 @@ function renderIPGrid(list){
       const anyNew=items.some(d=>d.new), anyChg=items.some(d=>d.changed);
       s+='<g style="cursor:pointer" onclick="setGridSubnet(\''+b+'\')">'+
         '<rect x="'+x+'" y="'+y+'" width="'+cell+'" height="'+cell+'" rx="12" fill="'+col+'" fill-opacity="'+op+'" stroke="'+(anyNew?'#57ab5a':(anyChg?'#c69026':'#444c56'))+'" stroke-width="'+(anyNew||anyChg?2:1)+'"/>'+
-        '<text x="'+(x+cell/2)+'" y="'+(y+cell/2-4)+'" text-anchor="middle" style="fill:#e9eff7;font-size:26px;font-weight:600">'+items.length+'</text>'+
-        '<text x="'+(x+cell/2)+'" y="'+(y+cell/2+18)+'" text-anchor="middle" style="fill:#cdd6e3;font-size:12px;font-family:ui-monospace,monospace">'+b+'.x</text></g>';
+        '<text x="'+(x+cell/2)+'" y="'+(y+cell/2-4)+'" text-anchor="middle" style="fill:var(--text);font-size:26px;font-weight:600">'+items.length+'</text>'+
+        '<text x="'+(x+cell/2)+'" y="'+(y+cell/2+18)+'" text-anchor="middle" style="fill:var(--muted);font-size:12px;font-family:ui-monospace,monospace">'+b+'.x</text></g>';
     });
     s+='</svg>';
     document.getElementById('svgwrap').innerHTML=s;
@@ -1225,8 +1248,8 @@ function renderIPGrid(list){
         '<rect x="'+x+'" y="'+y+'" width="'+cell+'" height="'+cell+'" rx="8" fill="'+col+'" fill-opacity="'+(d.new?'0.95':'0.78')+'" stroke="'+stroke+'" stroke-width="'+sw+'"/>'+
         '<foreignObject x="'+x+'" y="'+y+'" width="'+cell+'" height="'+cell+'"><div xmlns="http://www.w3.org/1999/xhtml" style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;text-align:center;padding:2px;box-sizing:border-box;color:#06121c;font-weight:600;font-size:'+gfs+'px;line-height:1.05;word-break:break-word;overflow:hidden">'+esc(gl)+'</div></foreignObject></g>';
     }else{
-      s+='<rect x="'+x+'" y="'+y+'" width="'+cell+'" height="'+cell+'" rx="8" fill="#2d333b" stroke="#373e47"/>'+
-        '<text x="'+(x+cell/2)+'" y="'+(y+cell/2+4)+'" text-anchor="middle" style="fill:#2f3c52;font-size:10px">'+o+'</text>';
+      s+='<rect x="'+x+'" y="'+y+'" width="'+cell+'" height="'+cell+'" rx="8" style="fill:var(--panel);stroke:var(--line)"/>'+
+        '<text x="'+(x+cell/2)+'" y="'+(y+cell/2+4)+'" text-anchor="middle" style="fill:var(--faint);font-size:10px">'+o+'</text>';
     }
   }
   s+='</svg>';
@@ -1664,6 +1687,15 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape'&&editingIp)cancelCar
 window.addEventListener('resize',()=>{if(view==='map')renderTopo();});
 // "Scan ports" — on by default, and remember the user's choice thereafter.
 function saveScanPorts(){try{localStorage.setItem('ns_scanports',document.getElementById('scanports').checked?'1':'0');}catch(_){}}
+// Light/dark theme — the early <head> script sets the initial value; this flips + remembers it.
+function toggleTheme(){
+  var next=document.documentElement.getAttribute('data-theme')==='light'?'dark':'light';
+  document.documentElement.setAttribute('data-theme',next);
+  try{localStorage.setItem('ns_theme',next);}catch(_){}
+}
+try{matchMedia('(prefers-color-scheme: light)').addEventListener('change',function(e){
+  if(!localStorage.getItem('ns_theme')) document.documentElement.setAttribute('data-theme',e.matches?'light':'dark');
+});}catch(_){}
 (function(){var v=null;try{v=localStorage.getItem('ns_scanports');}catch(_){}
   var el=document.getElementById('scanports'); if(el) el.checked=(v==null)?true:(v==='1');})();
 loadInfo();
