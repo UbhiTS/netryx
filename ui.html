@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Netryx — Network Intelligence</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHZpZXdCb3g9JzAgMCAzMiAzMic+PHJlY3Qgd2lkdGg9JzMyJyBoZWlnaHQ9JzMyJyByeD0nNycgZmlsbD0nIzBkMTExNycvPjxjaXJjbGUgY3g9JzE2JyBjeT0nMTYnIHI9JzExJyBmaWxsPSdub25lJyBzdHJva2U9JyMzMDM2M2QnIHN0cm9rZS13aWR0aD0nMicvPjxjaXJjbGUgY3g9JzE2JyBjeT0nMTYnIHI9JzcnIGZpbGw9J25vbmUnIHN0cm9rZT0nIzFmNmZlYicgc3Ryb2tlLXdpZHRoPScyJy8+PGNpcmNsZSBjeD0nMTYnIGN5PScxNicgcj0nMycgZmlsbD0nIzU4YTZmZicvPjwvc3ZnPg==">
-<script>(function(){try{var t=localStorage.getItem('ns_theme');if(t!=='light'&&t!=='dark')t=(window.matchMedia&&matchMedia('(prefers-color-scheme: light)').matches)?'light':'dark';document.documentElement.setAttribute('data-theme',t);}catch(_){document.documentElement.setAttribute('data-theme','dark');}})();</script>
+<script>(function(){try{var t=localStorage.getItem('ns_theme');if(t!=='light'&&t!=='dark'&&t!=='medium')t=(window.matchMedia&&matchMedia('(prefers-color-scheme: light)').matches)?'light':'dark';document.documentElement.setAttribute('data-theme',t);}catch(_){document.documentElement.setAttribute('data-theme','dark');}})();</script>
 <style>
 :root{
   /* GitHub Primer "dark dimmed" palette — softer/lighter than dark default */
@@ -36,14 +36,25 @@ html[data-theme="light"]{
   --ix:#0969da; --ix-strong:#0550ae; --ix-border:#d0d7de; --ix-border-hi:#afb8c1;
   --ix-bg:transparent; --ix-bg-hi:#eaeef2; --ix-glow:0 0 0 3px rgba(9,105,218,.3); --ix-glow-soft:none;
 }
-/* Light-mode fixes for the few chip/badge text colours hardcoded for dark */
-html[data-theme="light"] .chip,html[data-theme="light"] table.dev .pill,html[data-theme="light"] .srcbadge.src-cli{color:#57606a}
-html[data-theme="light"] .chip.web a,html[data-theme="light"] .badge.you{color:#0969da}
-html[data-theme="light"] .badge.chg,html[data-theme="light"] .chip.fresh,html[data-theme="light"] .pill.fresh{color:#1a7f37}
-html[data-theme="light"] .badge.rogue,html[data-theme="light"] .chip.rogueport,html[data-theme="light"] .evfeed .kind.rogue_device{color:#cf222e}
-html[data-theme="light"] .badge.drift,html[data-theme="light"] .evfeed .kind.new_open_port{color:#9a6700}
-html[data-theme="light"] .badge.dns,html[data-theme="light"] .svc .s{color:#8250df}
-html[data-theme="light"] .tier-critical{color:#cf222e}
+/* "Medium" — a soft blue-grey daylight palette sitting between dark-dimmed and light */
+html[data-theme="medium"]{
+  --bg:#d4dbe3; --bg2:#cad2db; --panel:#e2e7ed; --panel2:#eaeef2; --raise:#f0f3f6;
+  --border:#b0bac5; --line:#c2cad4; --text:#1c2128; --muted:#4a5560;
+  --faint:#6b7682; --cyan:#0a5cc0; --blue:#0a5cc0; --amber:#8a5d00; --warm:#a06800;
+  --green:#1a7f37; --red:#cf222e; --violet:#7c3fd4;
+  --shadow:0 8px 24px rgba(70,85,100,.25);
+  --primary:#1f883d; --primary-hi:#1a7f37;
+  --ix:#0a5cc0; --ix-strong:#0550ae; --ix-border:#b0bac5; --ix-border-hi:#8b97a4;
+  --ix-bg:transparent; --ix-bg-hi:#dde3ea; --ix-glow:0 0 0 3px rgba(10,92,192,.3); --ix-glow-soft:none;
+}
+/* Light/medium fixes for the few chip/badge text colours hardcoded for dark */
+html:not([data-theme="dark"]) .chip,html:not([data-theme="dark"]) table.dev .pill,html:not([data-theme="dark"]) .srcbadge.src-cli{color:#57606a}
+html:not([data-theme="dark"]) .chip.web a,html:not([data-theme="dark"]) .badge.you{color:#0969da}
+html:not([data-theme="dark"]) .badge.chg,html:not([data-theme="dark"]) .chip.fresh,html:not([data-theme="dark"]) .pill.fresh{color:#1a7f37}
+html:not([data-theme="dark"]) .badge.rogue,html:not([data-theme="dark"]) .chip.rogueport,html:not([data-theme="dark"]) .evfeed .kind.rogue_device{color:#cf222e}
+html:not([data-theme="dark"]) .badge.drift,html:not([data-theme="dark"]) .evfeed .kind.new_open_port{color:#9a6700}
+html:not([data-theme="dark"]) .badge.dns,html:not([data-theme="dark"]) .svc .s{color:#8250df}
+html:not([data-theme="dark"]) .tier-critical{color:#cf222e}
 *{box-sizing:border-box}
 html,body{margin:0}
 body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
@@ -76,9 +87,9 @@ header{position:sticky;top:0;z-index:30;
 .brand{display:flex;align-items:center;gap:13px}
 .mark{width:40px;height:40px;flex:0 0 auto}
 .brand h1{font-size:17px;margin:0;font-weight:700;letter-spacing:3px}
-.brandlink{display:flex;align-items:center;gap:13px;cursor:pointer;border-radius:8px;outline:none}
-.brandlink:hover{opacity:.85}
-.brandlink:focus-visible{box-shadow:0 0 0 2px var(--ix-border-hi)}
+.homelink{cursor:pointer}
+.homelink:hover{opacity:.8}
+.homelink:focus-visible{outline:none;box-shadow:0 0 0 2px var(--ix-border-hi);border-radius:4px}
 .brand .namerow{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
 .brand .tagsep{color:var(--faint);font-size:12px}
 .brand .tag{font-size:10.5px;color:var(--muted);letter-spacing:3px;text-transform:uppercase;font-family:var(--mono)}
@@ -321,8 +332,7 @@ textarea.ceinput{min-height:58px;resize:vertical}
 <header>
  <div class="hwrap">
   <div class="brand">
-   <div class="brandlink" onclick="setView('table')" onkeydown="if(event.key==='Enter')setView('table')" role="link" tabindex="0" title="Back to table view">
-    <svg class="mark" viewBox="0 0 40 40" fill="none" aria-hidden="true">
+    <svg class="mark homelink" viewBox="0 0 40 40" fill="none" aria-hidden="true" onclick="setView('table')" style="cursor:pointer" title="Back to table view">
       <circle cx="20" cy="20" r="18" stroke-width="1" style="stroke:var(--cyan);opacity:.45"/>
       <circle cx="20" cy="20" r="12" stroke-width="1" style="stroke:var(--cyan);opacity:.6"/>
       <circle cx="20" cy="20" r="6" stroke-width="1" style="stroke:var(--cyan)"/>
@@ -335,11 +345,10 @@ textarea.ceinput{min-height:58px;resize:vertical}
       <circle cx="28" cy="31" r="1.7" style="fill:var(--cyan)"/>
     </svg>
     <div>
-      <div class="namerow"><h1>NETRYX</h1><span class="tagsep">·</span><span class="tag">Network Intelligence</span><span class="tagline">› Discover · Monitor · Automate</span></div>
+      <div class="namerow"><h1 class="homelink" onclick="setView('table')" onkeydown="if(event.key==='Enter')setView('table')" role="link" tabindex="0" title="Back to table view">NETRYX</h1><span class="tagsep">·</span><span class="tag">Network Intelligence</span><span class="tagline">› Discover · Monitor · Automate</span></div>
     </div>
-   </div>
     <div class="env" id="env">locating network…</div>
-    <button id="themebtn" class="ghost sm" onclick="toggleTheme()" title="Toggle light / dark theme" aria-label="Toggle light or dark theme" style="margin-left:12px;padding:6px 8px;line-height:0;align-self:center">
+    <button id="themebtn" class="ghost sm" onclick="toggleTheme()" title="Cycle theme · dark › medium › light" aria-label="Cycle theme between dark, medium and light" style="margin-left:12px;padding:6px 8px;line-height:0;align-self:center">
       <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" style="display:block"><circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 1.5 A6.5 6.5 0 0 1 8 14.5 Z" fill="currentColor"/></svg>
     </button>
   </div>
@@ -1713,11 +1722,17 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape'&&editingIp)cancelCar
 window.addEventListener('resize',()=>{if(view==='map')renderTopo();});
 // "Scan ports" — on by default, and remember the user's choice thereafter.
 function saveScanPorts(){try{localStorage.setItem('ns_scanports',document.getElementById('scanports').checked?'1':'0');}catch(_){}}
-// Light/dark theme — the early <head> script sets the initial value; this flips + remembers it.
+// Theme cycle — ping-pong through dark › medium › light › medium › dark …
+// The early <head> script sets the initial value; this advances + remembers it (with direction).
+var THEMES=['dark','medium','light'];
 function toggleTheme(){
-  var next=document.documentElement.getAttribute('data-theme')==='light'?'dark':'light';
+  var cur=document.documentElement.getAttribute('data-theme');
+  var i=THEMES.indexOf(cur); if(i<0)i=0;
+  var dir=1; try{if(localStorage.getItem('ns_theme_dir')==='-1')dir=-1;}catch(_){}
+  if(i===0)dir=1; else if(i===THEMES.length-1)dir=-1;   // bounce off the ends
+  var next=THEMES[i+dir];
   document.documentElement.setAttribute('data-theme',next);
-  try{localStorage.setItem('ns_theme',next);}catch(_){}
+  try{localStorage.setItem('ns_theme',next);localStorage.setItem('ns_theme_dir',String(dir));}catch(_){}
 }
 try{matchMedia('(prefers-color-scheme: light)').addEventListener('change',function(e){
   if(!localStorage.getItem('ns_theme')) document.documentElement.setAttribute('data-theme',e.matches?'light':'dark');
