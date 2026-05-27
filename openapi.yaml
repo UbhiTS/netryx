@@ -389,6 +389,29 @@ paths:
       responses:
         "200":
           description: "text/event-stream of event frames"
+  "/api/mcp/audit":
+    get:
+      tags:
+      - "security"
+      summary: "MCP/API audit log (tool calls, subscribes, pushed events)"
+      parameters:
+      - name: "limit"
+        in: "query"
+        required: false
+        schema:
+          type: "integer"
+          default: 200
+      responses:
+        "200":
+          description: "OK"
+  "/api/mcp/subscribers":
+    get:
+      tags:
+      - "security"
+      summary: "Live MCP/SSE/long-poll subscribers (with active flag)"
+      responses:
+        "200":
+          description: "OK"
   "/api/tokens":
     get:
       tags:

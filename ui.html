@@ -370,6 +370,7 @@ textarea.ceinput{min-height:58px;resize:vertical}
     <div class="seg">
       <button id="v-events" onclick="setView('events')">Events<span class="evbadge" id="evbadge" style="display:none">0</span></button>
       <button id="v-hist" onclick="setView('hist')">History</button>
+      <button id="v-audit" onclick="setView('audit')">Audit</button>
       <button id="v-settings" onclick="setView('settings')" title="Security &amp; settings">⚙ Settings</button>
     </div>
   </div>
@@ -419,6 +420,9 @@ textarea.ceinput{min-height:58px;resize:vertical}
   </div>
   <div id="view-settings" style="display:none">
     <div class="secpanel" id="settings-body"></div>
+  </div>
+  <div id="view-audit" style="display:none">
+    <div class="secpanel" id="audit-body"></div>
   </div>
 
   <div class="empty" id="empty">
@@ -1304,13 +1308,13 @@ function notifyNew(n,np){
 function setView(v){
   view=v;lastKey='';
   try{ if((location.hash||'').slice(1)!==v) location.hash=v; }catch(_){}
-  ['cards','table','map','hist','events','settings'].forEach(x=>{
+  ['cards','table','map','hist','events','settings','audit'].forEach(x=>{
     document.getElementById('view-'+x).style.display=(x===v)?'block':'none';
     const btn=document.getElementById('v-'+x); if(btn)btn.classList.toggle('active',x===v);
   });
-  document.querySelector('.tool').style.display=(v==='hist'||v==='events'||v==='settings')?'none':'';
+  document.querySelector('.tool').style.display=(v==='hist'||v==='events'||v==='settings'||v==='audit')?'none':'';
   if(v!=='map')stopSim();
-  if(v==='hist')loadHistory();else if(v==='events')renderEvents();else if(v==='settings')renderSettings();else render();
+  if(v==='hist')loadHistory();else if(v==='events')renderEvents();else if(v==='settings')renderSettings();else if(v==='audit')renderAudit();else render();
 }
 async function loadHistory(){
   try{const items=await api('/api/history');
@@ -1477,13 +1481,16 @@ async function renderSettings(){
     '<div class="sub" style="margin:14px 0 4px">Use it from an agent or curl:</div>'+
     '<div class="snip">'+esc('curl -H "Authorization: Bearer <TOKEN>" '+mcpUrl+' -d \'{"jsonrpc":"2.0","id":1,"method":"tools/list"}\'')+'</div>'+
   '</div>';
-  html+='<div class="seccard"><h3>MCP &amp; API activity</h3>'+
-    '<div class="sub">Live connections (MCP subscribers, SSE and long-poll waiters) and recent tool/API calls. Auto-refreshes.</div>'+
-    '<div id="mcp-activity"><p class="hint">Loading…</p></div></div>';
   body.innerHTML=html;
+}
+async function renderAudit(){
+  const body=document.getElementById('audit-body'); if(!body)return;
+  body.innerHTML='<div class="seccard"><h3>MCP &amp; API activity</h3>'+
+    '<div class="sub">Live connections (MCP subscribers, SSE and long-poll waiters) and a log of tool/API calls and pushed events. Auto-refreshes every few seconds.</div>'+
+    '<div id="mcp-activity"><p class="hint">Loading…</p></div></div>';
   renderMcpActivity();
   clearInterval(mcpTimer);
-  mcpTimer=setInterval(function(){ if(view==='settings')renderMcpActivity(); else {clearInterval(mcpTimer);mcpTimer=null;} },5000);
+  mcpTimer=setInterval(function(){ if(view==='audit')renderMcpActivity(); else {clearInterval(mcpTimer);mcpTimer=null;} },5000);
 }
 function auditDetail(a){
   if(a.tool)return 'tool: '+a.tool;
