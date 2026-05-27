@@ -1865,6 +1865,20 @@ JOB_COUNTER = 0
 LAST_RESULTS = {"subnet": None, "devices": []}
 
 
+def _restore_last_results():
+    """On startup, repopulate LAST_RESULTS from the most recent saved scan so the
+    dashboard, baseline diff and MCP reflect the previous run after a restart."""
+    try:
+        hist = list_history()
+        if hist:
+            rec = _load_json(os.path.join(HISTORY_DIR, hist[0]["file"]), None)
+            if rec and rec.get("devices"):
+                LAST_RESULTS["subnet"] = rec.get("subnet")
+                LAST_RESULTS["devices"] = rec.get("devices", [])
+    except Exception:
+        pass
+
+
 def new_job(jtype):
     global JOB_COUNTER
     with JOBS_LOCK:
@@ -2981,6 +2995,7 @@ def main():
             _print_scan_table(res)
         return 0
 
+    _restore_last_results()
     port = find_free_port(args.port, args.host)
     httpd = ThreadingHTTPServer((args.host, port), Handler)
     shown = "127.0.0.1" if args.host in ("0.0.0.0", "") else args.host

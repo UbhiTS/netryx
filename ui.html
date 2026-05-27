@@ -1279,6 +1279,21 @@ async function loadScan(file){
     toast('Loaded scan from '+new Date((rec.time||0)*1000).toLocaleString());
   }catch(e){toast('Could not load scan','red');}
 }
+async function loadLast(){
+  // On launch, show the most recent saved scan instead of a blank page.
+  if(devices.length)return;
+  try{
+    const items=await api('/api/history');
+    if(!items||!items.length)return;
+    const rec=await api('/api/history?file='+encodeURIComponent(items[0].file));
+    if(rec&&rec.devices&&rec.devices.length&&!devices.length){
+      devices=rec.devices; lastKey='';
+      const fr=document.getElementById('firstrun'); if(fr)fr.style.display='none';
+      render();
+      toast('Loaded last scan — '+devices.length+' device'+(devices.length===1?'':'s')+' · '+new Date((rec.time||0)*1000).toLocaleString(),'green');
+    }
+  }catch(e){}
+}
 async function renderEvents(){
   const body=document.getElementById('events-body');
   body.innerHTML='<p class="hint">Loading…</p>';
@@ -1387,6 +1402,7 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape'&&editingIp)cancelCar
 window.addEventListener('resize',()=>{if(view==='map')renderTopo();});
 loadInfo();
 loadBaseline(false);
+loadLast();
 // Restore the view from the URL hash on load, and keep Back/Forward + refresh in sync.
 (function(){
   const VALID=['table','cards','map','hist','events','settings'];
