@@ -2123,7 +2123,7 @@ button:active{transform:translateY(1px)}
       <circle cx="20" cy="20" r="6" stroke="#49d8f2"/><circle cx="20" cy="20" r="3" fill="#ecb24a"/>
       <circle cx="32" cy="20" r="1.7" fill="#49d8f2"/><circle cx="14" cy="8" r="1.7" fill="#49d8f2"/>
       <circle cx="9" cy="27" r="1.7" fill="#3b82f6"/><circle cx="28" cy="31" r="1.7" fill="#49d8f2"/></svg>
-    <div class="namerow"><h1>NETRYX</h1><span class="tagsep">·</span><span class="tag">Network Intelligence</span></div><div class="tagline">Discover · Monitor · Automate</div>
+    <div class="namerow"><h1>NETRYX</h1><span class="tagsep">·</span><span class="tag">Network Intelligence · Discover · Monitor · Automate</span></div>
   </div>
   <label for="u">Username</label>
   <input id="u" name="username" autocomplete="username" autofocus required>
