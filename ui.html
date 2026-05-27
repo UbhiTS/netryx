@@ -444,6 +444,7 @@ let etaKey='', etaSamples=[];
 let baseline=null, ROGUE=new Set(), DRIFT=new Map();
 let appInfo=null;
 let liveMaxId=0, evtSrc=null, liveConnected=false;   // live event stream (SSE) state
+let mcpTimer=null;   // auto-refresh timer for the MCP activity panel
 
 const TYPE_META={
   "Router / Gateway":{c:"#ecb24a"},"Network device":{c:"#ecb24a"},
@@ -1155,10 +1156,11 @@ function renderIPGrid(list){
     const r=Math.floor(o/cols), c=o%cols, x=pad+c*(cell+gap), y=pad+top+r*(cell+gap), d=byOct[o];
     if(d){
       const col=typeColor(d.device_type), stroke=d.is_self?'#49d8f2':(d.is_gateway?'#ecb24a':'#0b1019'), sw=(d.is_self||d.is_gateway)?2.5:1;
-      let gl=nodeField(d,mapLabel)||(''+o); if(gl.length>8)gl=gl.slice(0,8)+'…'; const gfs=gl.length>5?9:13;
+      let gl=nodeField(d,mapLabel)||(''+o); if(gl.length>28)gl=gl.slice(0,27)+'…';
+      const gfs=/^\d+$/.test(gl)?13:(gl.length>10?8:10);
       s+='<g class="tnode" style="cursor:pointer" onclick="focusCard(\''+esc(d.ip)+'\')" onmousemove="showTip(event,\''+esc(d.ip)+'\')" onmouseleave="hideTip()">'+
         '<rect x="'+x+'" y="'+y+'" width="'+cell+'" height="'+cell+'" rx="8" fill="'+col+'" fill-opacity="'+(d.new?'0.95':'0.78')+'" stroke="'+stroke+'" stroke-width="'+sw+'"/>'+
-        '<text x="'+(x+cell/2)+'" y="'+(y+cell/2+4)+'" text-anchor="middle" style="fill:#06121c;font-size:'+gfs+'px;font-weight:600">'+esc(gl)+'</text></g>';
+        '<foreignObject x="'+x+'" y="'+y+'" width="'+cell+'" height="'+cell+'"><div xmlns="http://www.w3.org/1999/xhtml" style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;text-align:center;padding:2px;box-sizing:border-box;color:#06121c;font-weight:600;font-size:'+gfs+'px;line-height:1.05;word-break:break-word;overflow:hidden">'+esc(gl)+'</div></foreignObject></g>';
     }else{
       s+='<rect x="'+x+'" y="'+y+'" width="'+cell+'" height="'+cell+'" rx="8" fill="#111a2b" stroke="#16233a"/>'+
         '<text x="'+(x+cell/2)+'" y="'+(y+cell/2+4)+'" text-anchor="middle" style="fill:#2f3c52;font-size:10px">'+o+'</text>';
@@ -1475,7 +1477,36 @@ async function renderSettings(){
     '<div class="sub" style="margin:14px 0 4px">Use it from an agent or curl:</div>'+
     '<div class="snip">'+esc('curl -H "Authorization: Bearer <TOKEN>" '+mcpUrl+' -d \'{"jsonrpc":"2.0","id":1,"method":"tools/list"}\'')+'</div>'+
   '</div>';
+  html+='<div class="seccard"><h3>MCP &amp; API activity</h3>'+
+    '<div class="sub">Live connections (MCP subscribers, SSE and long-poll waiters) and recent tool/API calls. Auto-refreshes.</div>'+
+    '<div id="mcp-activity"><p class="hint">Loading…</p></div></div>';
   body.innerHTML=html;
+  renderMcpActivity();
+  clearInterval(mcpTimer);
+  mcpTimer=setInterval(function(){ if(view==='settings')renderMcpActivity(); else {clearInterval(mcpTimer);mcpTimer=null;} },5000);
+}
+function auditDetail(a){
+  if(a.tool)return 'tool: '+a.tool;
+  if(a.client)return 'client: '+a.client+(a.client_version?(' '+a.client_version):'');
+  if(a.event_id)return 'event #'+a.event_id+(a.event_kind?(' '+a.event_kind):'');
+  if(a.min_severity)return 'filter ≥'+a.min_severity;
+  return '';
+}
+async function renderMcpActivity(){
+  const box=document.getElementById('mcp-activity'); if(!box)return;
+  let subs=[], aud=[];
+  try{const r=await api('/api/mcp/subscribers'); subs=r.subscribers||[];}catch(_){}
+  try{const r=await api('/api/mcp/audit?limit=60'); aud=r.audit||[];}catch(_){}
+  const active=subs.filter(s=>s.active);
+  let h='<div class="bigstat" style="margin:2px 0 8px"><div class="x"><b class="'+(active.length?'tier-low':'tier-none')+'" style="font-size:18px">'+active.length+'</b><span>Live connections</span></div></div>';
+  if(active.length){
+    h+='<div class="tablewrap"><table class="dev"><thead><tr><th>Via</th><th>Caller</th><th>Connected</th><th>Filter</th></tr></thead><tbody>'+
+      active.map(s=>'<tr><td>'+esc(s.transport||'')+'</td><td>'+esc(s.caller||'')+(s.ip?(' <span class="hint">'+esc(s.ip)+'</span>'):'')+'</td><td class="mono" style="font-size:11px">'+relTime(s.since)+'</td><td class="hint">'+esc(s.min_severity?('≥'+s.min_severity):'')+'</td></tr>').join('')+
+      '</tbody></table></div>';
+  }else{ h+='<p class="hint">No live subscribers right now.</p>'; }
+  const rows = aud.length ? aud.map(a=>'<tr><td class="mono" style="font-size:11px">'+esc(new Date((a.time||0)*1000).toLocaleString())+'</td><td>'+esc(a.kind||'')+'</td><td>'+esc(a.transport||'')+'</td><td>'+esc(a.caller||'')+'</td><td class="hint">'+esc(auditDetail(a))+'</td></tr>').join('') : '<tr><td colspan="5" class="hint">No activity recorded yet.</td></tr>';
+  h+='<div class="sub" style="margin:14px 0 4px">Recent activity</div><div class="tablewrap"><table class="dev"><thead><tr><th>When</th><th>Event</th><th>Via</th><th>Caller</th><th>Detail</th></tr></thead><tbody>'+rows+'</tbody></table></div>';
+  box.innerHTML=h;
 }
 function changeCreds(){
   const u=(document.getElementById('adm-user').value||'').trim()||'admin';

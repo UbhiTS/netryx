@@ -1856,6 +1856,120 @@ def auth_configured():
     return not NETRYX_OPEN
 
 
+def token_name(value):
+    """Name of the managed token matching `value` (for audit / caller identity)."""
+    if not value:
+        return None
+    if NETRYX_TOKEN and hmac.compare_digest(value, NETRYX_TOKEN):
+        return "env-token"
+    for t in load_tokens().get("tokens", []):
+        if hmac.compare_digest(value, t.get("token", "")):
+            return t.get("name") or t.get("id")
+    return None
+
+
+# ---- MCP / API audit trail (append-only JSONL) + live subscriber registry ----
+AUDIT_FILE = os.path.join(DATA_DIR, "mcp_audit.log")
+AUDIT_MAX = 2000
+SUBSCRIBERS_FILE = os.path.join(DATA_DIR, "mcp_subscribers.json")
+_AUDIT_LOCK = threading.Lock()
+
+
+def audit(kind, **rec):
+    """Best-effort append of one audit record. Never raises into the caller."""
+    try:
+        rec["kind"] = kind
+        rec["time"] = time.time()
+        line = json.dumps(rec, default=str)
+        with _AUDIT_LOCK:
+            with open(AUDIT_FILE, "a", encoding="utf-8") as f:
+                f.write(line + "\n")
+            if os.path.getsize(AUDIT_FILE) > 1500000:        # trim when large
+                with open(AUDIT_FILE, "r", encoding="utf-8") as f:
+                    lines = f.readlines()[-AUDIT_MAX:]
+                with open(AUDIT_FILE, "w", encoding="utf-8") as f:
+                    f.writelines(lines)
+    except Exception:
+        pass
+
+
+def list_audit(limit=200):
+    try:
+        with open(AUDIT_FILE, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+    except Exception:
+        return []
+    out = []
+    for ln in (lines[-int(limit):] if limit else lines):
+        ln = ln.strip()
+        if ln:
+            try:
+                out.append(json.loads(ln))
+            except Exception:
+                pass
+    return out[::-1]
+
+
+def sub_register(sid, **info):
+    try:
+        with _AUDIT_LOCK:
+            d = _load_json(SUBSCRIBERS_FILE, {}) or {}
+            cur = d.get(sid, {})
+            cur.update(info)
+            cur["id"] = sid
+            cur.setdefault("since", time.time())
+            cur["last_seen"] = time.time()
+            d[sid] = cur
+            _save_json(SUBSCRIBERS_FILE, d)
+    except Exception:
+        pass
+
+
+def sub_heartbeat(sid):
+    try:
+        with _AUDIT_LOCK:
+            d = _load_json(SUBSCRIBERS_FILE, {}) or {}
+            if sid in d:
+                d[sid]["last_seen"] = time.time()
+                _save_json(SUBSCRIBERS_FILE, d)
+    except Exception:
+        pass
+
+
+def sub_remove(sid):
+    try:
+        with _AUDIT_LOCK:
+            d = _load_json(SUBSCRIBERS_FILE, {}) or {}
+            if d.pop(sid, None) is not None:
+                _save_json(SUBSCRIBERS_FILE, d)
+    except Exception:
+        pass
+
+
+def list_subscribers(active_secs=45):
+    d = _load_json(SUBSCRIBERS_FILE, {}) or {}
+    now = time.time()
+    items = sorted(d.values(), key=lambda x: x.get("last_seen", 0), reverse=True)
+    for it in items:
+        it["active"] = (now - it.get("last_seen", 0)) <= active_secs
+    return items
+
+
+def _audit_mcp(transport, who, ip, req):
+    """Audit one JSON-RPC request (initialize / tools/call) — best effort."""
+    try:
+        m = req.get("method")
+        if m == "initialize":
+            ci = (req.get("params") or {}).get("clientInfo") or {}
+            audit("init", transport=transport, caller=who, ip=ip,
+                  client=ci.get("name"), client_version=ci.get("version"))
+        elif m == "tools/call":
+            audit("call", transport=transport, caller=who, ip=ip,
+                  tool=((req.get("params") or {}).get("name")))
+    except Exception:
+        pass
+
+
 # ---- browser login sessions (cookie-based; in-memory) ----
 SESSIONS = {}                # token -> expiry epoch
 SESSIONS_LOCK = threading.Lock()
@@ -2848,6 +2962,19 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(302, b"", extra={"Location": "/login"})
         return self._send(401, {"error": "unauthorized"})
 
+    def _client_ip(self):
+        return self.client_address[0] if self.client_address else ""
+
+    def _caller_label(self):
+        m = self._auth_method()
+        if m == "token":
+            return token_name(self._bearer()) or "token"
+        if m == "basic":
+            return "admin"
+        if m == "session":
+            return "admin (session)"
+        return m   # localhost / open / none
+
     def do_GET(self):
         parsed = urlparse(self.path)
         path, qs = parsed.path, parse_qs(parsed.query)
@@ -2913,6 +3040,14 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 limit = 100
             return self._send(200, {"events": list_events(limit)})
+        if path == "/api/mcp/audit":
+            try:
+                alim = int((qs.get("limit") or ["200"])[0])
+            except Exception:
+                alim = 200
+            return self._send(200, {"audit": list_audit(alim)})
+        if path == "/api/mcp/subscribers":
+            return self._send(200, {"subscribers": list_subscribers()})
         if path == "/api/events/poll":
             try:
                 since = int((qs.get("since") or ["0"])[0])
@@ -2922,7 +3057,12 @@ class Handler(BaseHTTPRequestHandler):
                 timeout = max(1, min(60, int((qs.get("timeout") or ["25"])[0])))
             except Exception:
                 timeout = 25
-            EVENT_HUB.wait(since, timeout)
+            sid = "poll-" + secrets.token_hex(3)
+            sub_register(sid, transport="long-poll", caller=self._caller_label(), ip=self._client_ip())
+            try:
+                EVENT_HUB.wait(since, timeout)
+            finally:
+                sub_remove(sid)
             return self._send(200, {"events": events_since(since), "seq": EVENT_HUB.seq})
         if path == "/api/events/stream":
             sv = (qs.get("since") or [None])[0]
@@ -2935,6 +3075,10 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Connection", "keep-alive")
             self.send_header("X-Accel-Buffering", "no")   # don't let nginx buffer SSE
             self.end_headers()
+            sid = "sse-" + secrets.token_hex(4)
+            who = self._caller_label()
+            sub_register(sid, transport="sse", caller=who, ip=self._client_ip())
+            audit("subscribe", transport="sse", caller=who, ip=self._client_ip(), sid=sid)
             try:
                 self.wfile.write(b": connected\n\n")
                 for e in events_since(last):
@@ -2951,8 +3095,12 @@ class Handler(BaseHTTPRequestHandler):
                     else:
                         self.wfile.write(b": keepalive\n\n")   # heartbeat
                     self.wfile.flush()
+                    sub_heartbeat(sid)
             except Exception:
                 pass          # client disconnected
+            finally:
+                sub_remove(sid)
+                audit("unsubscribe", transport="sse", caller=who, sid=sid)
             return
         if path == "/api/tokens":
             return self._send(200, {"tokens": list_tokens(),
@@ -2984,6 +3132,10 @@ class Handler(BaseHTTPRequestHandler):
             # the same live scan results and jobs the web UI does.
             mcpmod.engine = sys.modules[__name__]
             items = data if isinstance(data, list) else [data]
+            who, ip = self._caller_label(), self._client_ip()
+            for it in items:
+                if isinstance(it, dict):
+                    _audit_mcp("http", who, ip, it)
             out = [r for r in (mcpmod.dispatch(it) for it in items) if r is not None]
             if not out:
                 return self._send(202, b"")  # only notifications -> no body

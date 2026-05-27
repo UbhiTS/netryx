@@ -18,6 +18,8 @@ events.json
 alerts_seen.json
 tokens.json
 auth.json
+mcp_audit.log
+mcp_subscribers.json
 # Downloaded IEEE vendor database (large, regenerated on demand)
 oui.txt
 oui.csv

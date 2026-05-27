@@ -46,6 +46,8 @@ _TIER_ORDER = {"none": 0, "low": 1, "medium": 2, "high": 3, "critical": 4}
 _SEV_RANK = {"info": 0, "warning": 1, "high": 2, "critical": 3}
 _SUB = {"on": False, "min": 0, "kinds": None, "last": 0}
 _WATCHER_STARTED = False
+_SID = "mcp-%d" % os.getpid()          # this stdio session's id (one process per client)
+_CLIENT = {"name": None, "version": None}
 
 
 def _event_max_id():
@@ -62,6 +64,7 @@ def _watch_events():
     while True:
         try:
             if _SUB["on"]:
+                engine.sub_heartbeat(_SID)
                 evs = engine._load_json(engine.EVENTS_FILE, []) or []
                 for e in [x for x in evs if x.get("id", 0) > _SUB["last"]]:
                     _SUB["last"] = max(_SUB["last"], e.get("id", 0))
@@ -70,6 +73,11 @@ def _watch_events():
                     if _SUB["kinds"] and e.get("kind") not in _SUB["kinds"]:
                         continue
                     _send({"jsonrpc": "2.0", "method": "notifications/netryx/event", "params": e})
+                    try:
+                        engine.audit("notify", transport="stdio", caller=(_CLIENT.get("name") or "stdio"),
+                                     sid=_SID, event_id=e.get("id"), event_kind=e.get("kind"))
+                    except Exception:
+                        pass
         except Exception:
             pass
         time.sleep(2.0)
@@ -89,6 +97,14 @@ def tool_subscribe(args):
     _SUB["last"] = _event_max_id()      # only push events created after subscribing
     _SUB["on"] = True
     _ensure_watcher()
+    try:
+        engine.sub_register(_SID, transport="stdio", caller=(_CLIENT.get("name") or "stdio"),
+                            min_severity=(args.get("min_severity") or "info"),
+                            kinds=(list(_SUB["kinds"]) if _SUB["kinds"] else "all"))
+        engine.audit("subscribe", transport="stdio", caller=(_CLIENT.get("name") or "stdio"),
+                     sid=_SID, min_severity=(args.get("min_severity") or "info"))
+    except Exception:
+        pass
     return {"subscribed": True,
             "min_severity": (args.get("min_severity") or "info"),
             "kinds": (list(_SUB["kinds"]) if _SUB["kinds"] else "all"),
@@ -97,6 +113,11 @@ def tool_subscribe(args):
 
 def tool_unsubscribe(args):
     _SUB["on"] = False
+    try:
+        engine.sub_remove(_SID)
+        engine.audit("unsubscribe", transport="stdio", caller=(_CLIENT.get("name") or "stdio"), sid=_SID)
+    except Exception:
+        pass
     return {"subscribed": False}
 
 
@@ -663,6 +684,23 @@ def _send(msg):
         _OUT.flush()
 
 
+def _audit_stdio(req):
+    try:
+        if not isinstance(req, dict):
+            return
+        m = req.get("method")
+        if m == "initialize":
+            ci = (req.get("params") or {}).get("clientInfo") or {}
+            _CLIENT["name"] = ci.get("name"); _CLIENT["version"] = ci.get("version")
+            engine.audit("init", transport="stdio", caller=(ci.get("name") or "stdio"),
+                         client=ci.get("name"), client_version=ci.get("version"), sid=_SID)
+        elif m == "tools/call":
+            engine.audit("call", transport="stdio", caller=(_CLIENT.get("name") or "stdio"),
+                         tool=((req.get("params") or {}).get("name")), sid=_SID)
+    except Exception:
+        pass
+
+
 def main():
     for line in sys.stdin:
         line = line.strip()
@@ -675,6 +713,7 @@ def main():
             continue
         items = req if isinstance(req, list) else [req]
         for item in items:
+            _audit_stdio(item)
             resp = dispatch(item)
             if resp is not None:
                 _send(resp)
