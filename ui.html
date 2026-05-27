@@ -21,13 +21,13 @@ a{color:var(--cyan);text-decoration:none}
 a:hover{text-decoration:underline}
 .mono{font-family:var(--mono)}
 ::selection{background:rgba(73,216,242,.25)}
-button{font-family:inherit;font-size:13px;cursor:pointer;border:1px solid var(--border);
+button{font-family:inherit;font-size:13px;cursor:pointer;border:1px solid #2e4063;
   background:var(--panel2);color:var(--text);border-radius:9px;padding:8px 13px;transition:.15s;white-space:nowrap}
-button:hover{border-color:var(--cyan);color:#fff}
+button:hover{border-color:var(--cyan);color:#fff;background:rgba(73,216,242,.13)}
 button:disabled{opacity:.45;cursor:not-allowed}
 button.primary{background:linear-gradient(135deg,var(--cyan),var(--blue));border:none;color:#04121c;font-weight:700}
 button.primary:hover{filter:brightness(1.07);color:#04121c}
-button.ghost{background:transparent}
+button.ghost{background:var(--panel2)}
 button.sm{padding:6px 10px;font-size:12px}
 input[type=text],select{font-family:inherit;font-size:13px;background:var(--bg2);
   border:1px solid var(--border);color:var(--text);border-radius:9px;padding:9px 11px;outline:none}
@@ -79,8 +79,10 @@ main{max-width:1560px;margin:0 auto;padding:18px 22px 70px}
 
 .viewbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:6px 0 16px}
 .seg{display:inline-flex;background:var(--panel2);border:1px solid var(--border);border-radius:10px;padding:3px}
-.seg button{border:none;background:transparent;border-radius:7px;padding:7px 14px;color:var(--muted);font-weight:600}
+.seg button{border:none;background:transparent;border-radius:7px;padding:7px 14px;color:#aebfd6;font-weight:600;transition:.12s}
+.seg button:hover{background:rgba(255,255,255,.07);color:#fff}
 .seg button.active{background:linear-gradient(135deg,var(--cyan),var(--blue));color:#04121c}
+.seg button.active:hover{background:linear-gradient(135deg,var(--cyan),var(--blue));color:#04121c}
 .viewbar .spacer{flex:1}
 .tool{display:flex;gap:9px;align-items:center;flex-wrap:wrap}
 .tool input[type=text]{min-width:230px}
@@ -360,10 +362,10 @@ textarea.ceinput{min-height:58px;resize:vertical}
       <button class="ghost sm" onclick="exportData('csv')">CSV</button>
       <button class="ghost sm" onclick="exportData('json')">JSON</button>
     </div>
-    <div class="viewnav">
-      <button id="v-events" class="ghost navbtn" onclick="setView('events')">Events<span class="evbadge" id="evbadge" style="display:none">0</span></button>
-      <button id="v-hist" class="ghost navbtn" onclick="setView('hist')">History</button>
-      <button id="v-settings" class="ghost navbtn" onclick="setView('settings')" title="Security &amp; settings">⚙ Settings</button>
+    <div class="seg">
+      <button id="v-events" onclick="setView('events')">Events<span class="evbadge" id="evbadge" style="display:none">0</span></button>
+      <button id="v-hist" onclick="setView('hist')">History</button>
+      <button id="v-settings" onclick="setView('settings')" title="Security &amp; settings">⚙ Settings</button>
     </div>
   </div>
 
