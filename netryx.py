@@ -2120,6 +2120,9 @@ button:active{transform:translateY(1px)}
 .err{margin-top:14px;min-height:18px;color:var(--red);font-size:12.5px;text-align:center}
 .hint{margin-top:18px;text-align:center;color:var(--muted);font-size:11px;font-family:ui-monospace,monospace}
 .hint b{color:var(--cyan);font-weight:600}
+.remember{display:flex;align-items:center;gap:8px;margin-top:16px;font-size:13px;color:var(--muted)}
+.remember input{width:auto;margin:0;cursor:pointer}
+.remember label{margin:0;text-transform:none;letter-spacing:0;font-size:13px;color:var(--muted);cursor:pointer}
 </style></head><body>
 <form class="card" id="f" onsubmit="return go(event)">
   <div class="brand">
@@ -2134,6 +2137,10 @@ button:active{transform:translateY(1px)}
   <input id="u" name="username" autocomplete="username" autofocus required>
   <label for="p">Password</label>
   <input id="p" name="password" type="password" autocomplete="current-password" required>
+  <div class="remember">
+    <input type="checkbox" id="rm" checked>
+    <label for="rm">Remember me on this device</label>
+  </div>
   <button type="submit">Sign in</button>
   <div class="err" id="err"></div>
   __HINT__
@@ -2143,13 +2150,17 @@ async function go(e){
   e.preventDefault();
   var err=document.getElementById('err'); err.textContent='';
   try{
+    var rm=document.getElementById('rm').checked;
+    try{localStorage.setItem('ns_remember',rm?'1':'0');}catch(_){}
     var r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({username:document.getElementById('u').value,password:document.getElementById('p').value})});
+      body:JSON.stringify({username:document.getElementById('u').value,password:document.getElementById('p').value,remember:rm})});
     if(r.ok){location.href='/';}
     else{var d=await r.json().catch(function(){return {};}); err.textContent=d.error||'Sign in failed';}
   }catch(_){err.textContent='Could not reach the server';}
   return false;
 }
+// Restore the user's last "Remember me" choice (default checked).
+(function(){try{var v=localStorage.getItem('ns_remember');if(v==='0'){var el=document.getElementById('rm');if(el)el.checked=false;}}catch(_){}})();
 </script></body></html>""").replace("__HINT__", hint)
 
 
@@ -3434,8 +3445,13 @@ class Handler(BaseHTTPRequestHandler):
             if verify_admin((data.get("username") or "").strip(), data.get("password") or ""):
                 login_ok(ip)
                 tok = new_session()
-                return self._send(200, {"ok": True}, extra={"Set-Cookie":
-                    "ns_session=%s; Path=/; Max-Age=%d%s" % (tok, SESSION_TTL, COOKIE_ATTRS)})
+                # "Remember me" — true (default): 30-day persistent cookie.
+                # false: session cookie (no Max-Age) — browser drops it on close.
+                remember = bool(data.get("remember", True))
+                cookie = (("ns_session=%s; Path=/; Max-Age=%d%s" % (tok, SESSION_TTL, COOKIE_ATTRS))
+                          if remember else
+                          ("ns_session=%s; Path=/%s" % (tok, COOKIE_ATTRS)))
+                return self._send(200, {"ok": True}, extra={"Set-Cookie": cookie})
             login_fail(ip)
             time.sleep(0.5)          # slow scripted brute force
             return self._send(401, {"error": "invalid username or password"})
