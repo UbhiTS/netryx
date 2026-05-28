@@ -1604,6 +1604,8 @@ async function renderSettings(){
   try{const tr=await api('/api/tokens');toks=tr.tokens||[];}catch(_){}
   let sched={};
   try{sched=await api('/api/schedule');}catch(_){}
+  let totp={};
+  try{totp=await api('/api/totp/status');}catch(_){}
   const mcpUrl=(location.origin||'')+'/mcp';
   let html='';
   html+='<div class="seccard"><h3>Access control</h3>'+
@@ -1621,6 +1623,20 @@ async function renderSettings(){
      '<input type="password" id="adm-cur" placeholder="current password" autocomplete="off">'+
      '<input type="password" id="adm-new" placeholder="new password" autocomplete="off">'+
      '<button class="sm primary" onclick="changeCreds()">Update login</button></div></div>';
+  // ---- Two-factor authentication card (TOTP, RFC 6238) ----
+  const t2fOn=!!(totp&&totp.enabled);
+  html+='<div class="seccard"><h3>Two-factor authentication</h3>'+
+    '<div class="sub">Optional second step at login: a 6-digit code from <b>Google Authenticator</b>, <b>Microsoft Authenticator</b>, <b>Authy</b>, <b>1Password</b>, <b>Bitwarden</b>, or any TOTP / RFC 6238 app. API tokens used by MCP and other agents are <b>not</b> affected.</div>'+
+    '<div class="bigstat">'+
+      '<div class="x"><b class="'+(t2fOn?'tier-low':'tier-none')+'" style="font-size:17px">'+(t2fOn?'ON':'OFF')+'</b><span>2FA</span></div>'+
+      '<div class="x"><b style="font-size:17px">'+esc(totp.username||auth.username||'admin')+'</b><span>Account</span></div>'+
+    '</div>'+
+    '<div id="totp-panel" style="margin-top:12px"></div>'+
+    (t2fOn
+      ? '<div class="tokform"><input type="password" id="totp-disable-pw" placeholder="current password" autocomplete="off"><button class="sm" onclick="totpDisable()">Disable 2FA</button></div>'
+      : '<div class="tokform"><button class="sm primary" onclick="totpBegin()">Enable 2FA</button></div>')+
+    '<p class="hint" style="margin-top:10px">Lost your authenticator? Run <span class="mono">netryx --reset-2fa '+esc(totp.username||auth.username||'admin')+'</span> on the server to clear 2FA and sign in with just your password.</p>'+
+  '</div>';
   // ---- Scheduled scans (server-side; own isolated config, separate from the
   //      manual scan bar and the browser "Live monitor") ----
   const sIval=Number(sched.interval||3600);
@@ -1710,6 +1726,61 @@ function changeCreds(){
     .then(()=>{toast('Admin login updated.','green');document.getElementById('adm-cur').value='';document.getElementById('adm-new').value='';loadInfo();renderSettings();})
     .catch(e=>toast((''+e.message).indexOf('403')>=0?'Current password is incorrect':'Could not update: '+e.message,'red'));
 }
+async function totpBegin(){
+  try{
+    const r=await api('/api/totp/begin',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+    const p=document.getElementById('totp-panel'); if(!p)return;
+    const qrBlock = r.qr_svg
+      ? '<div style="background:#fff;padding:10px;border-radius:8px;max-width:240px;width:100%">'+r.qr_svg+'</div>'
+      : '<div class="hint">(QR rendering unavailable on this server)</div>';
+    p.innerHTML='<div class="seccard" style="margin:6px 0 0;padding:16px;background:var(--bg2)">'+
+      '<div style="display:flex;flex-direction:column;align-items:center;gap:10px;margin-bottom:14px">'+
+        '<div class="sub" style="margin:0;text-align:center"><b>Scan this QR code with your authenticator app</b></div>'+
+        qrBlock+
+        '<div class="hint" style="text-align:center;max-width:340px">Works with Google Authenticator, Microsoft Authenticator, Authy, 1Password, Bitwarden, and any TOTP / RFC 6238 app.</div>'+
+      '</div>'+
+      '<details style="margin-top:6px"><summary class="hint" style="cursor:pointer;user-select:none">Can&rsquo;t scan? Enter the setup key manually</summary>'+
+        '<div style="margin-top:10px">'+
+          '<div class="hint" style="margin-bottom:6px">In your authenticator app pick <b>Enter setup key</b> and paste this secret:</div>'+
+          '<div class="snip" style="user-select:all;font-size:13.5px;letter-spacing:.05em">'+esc(r.secret)+'</div>'+
+          '<div style="display:flex;align-items:center;gap:10px;margin-top:8px;flex-wrap:wrap">'+
+            '<button class="sm ghost" onclick="copyText(\''+esc(r.secret)+'\')">Copy secret</button>'+
+            '<span class="hint">Issuer: '+esc(r.issuer||'Netryx')+' &middot; Account: '+esc(r.username||'admin')+'</span>'+
+          '</div>'+
+          '<div class="hint" style="margin-top:10px;word-break:break-all">On a phone you can also tap this deeplink: <a href="'+esc(r.uri)+'">'+esc(r.uri)+'</a></div>'+
+        '</div>'+
+      '</details>'+
+      '<div style="margin-top:16px"><b>Enter the 6-digit code your app shows to confirm:</b></div>'+
+      '<div class="tokform" style="margin-top:8px">'+
+        '<input type="text" id="totp-code" inputmode="numeric" maxlength="6" placeholder="123456" autocomplete="off" style="font-family:var(--mono);font-size:18px;letter-spacing:.25em;text-align:center;max-width:150px">'+
+        '<button class="sm primary" onclick="totpConfirm(\''+esc(r.secret)+'\')">Confirm</button>'+
+        '<button class="sm ghost" onclick="document.getElementById(\'totp-panel\').innerHTML=\'\'">Cancel</button>'+
+      '</div>'+
+    '</div>';
+    const ci=document.getElementById('totp-code'); if(ci)ci.focus();
+  }catch(e){toast('Could not start 2FA enrollment: '+e.message,'red');}
+}
+async function totpConfirm(secret){
+  const code=(document.getElementById('totp-code').value||'').replace(/\D/g,'');
+  if(code.length!==6){toast('Enter the full 6-digit code','amber');return;}
+  try{
+    await api('/api/totp/confirm',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({secret:secret,code:code})});
+    toast('Two-factor authentication enabled.','green');
+    renderSettings();
+  }catch(e){toast('Code did not verify - check your phone clock and try again.','red');}
+}
+async function totpDisable(){
+  const pw=document.getElementById('totp-disable-pw').value;
+  if(!pw){toast('Enter your current password to disable 2FA','amber');return;}
+  try{
+    await api('/api/totp/disable',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({password:pw})});
+    toast('Two-factor authentication disabled.','green');
+    renderSettings();
+  }catch(e){toast((''+e.message).indexOf('403')>=0?'Password incorrect':'Could not disable: '+e.message,'red');}
+}
+
 // ---- scheduled scans (settings card) ----
 const SCHED_STEPS=[60,120,300,600,900,1800,3600,7200,21600,43200,86400,172800,604800,1209600,2592000];
 function schedFmt(sec){
