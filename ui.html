@@ -557,7 +557,7 @@ let mcpTimer=null;   // auto-refresh timer for the MCP activity panel
 const TYPE_META={
   "Router / Gateway":{c:"#c69026"},"Network device":{c:"#c69026"},
   "Media / Streaming":{c:"#986ee2"},"Media server (Plex)":{c:"#986ee2"},
-  "Printer":{c:"#5fe3c0"},"Scanner":{c:"#5fe3c0"},"IoT / Smart home":{c:"#57ab5a"},
+  "Printer":{c:"#6f7be0"},"Scanner":{c:"#6f7be0"},"IoT / Smart home":{c:"#57ab5a"},
   "Camera":{c:"#e5534b"},"Apple device":{c:"#d6649a"},"Android device":{c:"#57ab5a"},
   "Raspberry Pi":{c:"#e5534b"},"NAS / Storage":{c:"#316dca"},
   "Windows PC / Server":{c:"#539bf5"},"Server":{c:"#316dca"},"Computer":{c:"#539bf5"},
@@ -1226,8 +1226,14 @@ function startGraph(list){
     _sim.alpha=alpha*0.97;
     for(let i=0;i<N;i++) gEls[i].setAttribute('transform','translate('+nodes[i].x.toFixed(1)+','+nodes[i].y.toFixed(1)+')');
     for(let i=0;i<N;i++){const n=nodes[i]; if(n.parent>=0&&eEls[i]){const par=nodes[n.parent];
-      eEls[i].setAttribute('x1',n.x.toFixed(1));eEls[i].setAttribute('y1',n.y.toFixed(1));
-      eEls[i].setAttribute('x2',par.x.toFixed(1));eEls[i].setAttribute('y2',par.y.toFixed(1));}}
+      let dx=par.x-n.x,dy=par.y-n.y,dist=Math.sqrt(dx*dx+dy*dy)||1,ux=dx/dist,uy=dy/dist;
+      if(dist-n.r-par.r>2){   // stop each line at the circles' rims, not their centres
+        eEls[i].setAttribute('x1',(n.x+ux*n.r).toFixed(1));eEls[i].setAttribute('y1',(n.y+uy*n.r).toFixed(1));
+        eEls[i].setAttribute('x2',(par.x-ux*par.r).toFixed(1));eEls[i].setAttribute('y2',(par.y-uy*par.r).toFixed(1));
+      }else{
+        eEls[i].setAttribute('x1',n.x.toFixed(1));eEls[i].setAttribute('y1',n.y.toFixed(1));
+        eEls[i].setAttribute('x2',par.x.toFixed(1));eEls[i].setAttribute('y2',par.y.toFixed(1));
+      }}}
     if(_sim.alpha<0.02){_sim.frozen=true;return;}   // settled: rest (still + clickable, no CPU)
     _sim.raf=requestAnimationFrame(tick);
   }
